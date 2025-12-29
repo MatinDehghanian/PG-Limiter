@@ -27,8 +27,8 @@ check_dependencies() {
 get_binary_name() {
     local arch=$(uname -m)
     case "$arch" in
-        x86_64) echo "Limiter_amd64.bin" ;;
-        aarch64) echo "Limiter_arm64.bin" ;;
+        x86_64) echo "limiter_amd64" ;;
+        aarch64) echo "limiter_arm64" ;;
         *) echo ""; return 1 ;;
     esac
 }
@@ -36,8 +36,6 @@ get_binary_name() {
 # Download the latest release binary
 download_program() {
     local filename=$(get_binary_name)
-    local release_name="${filename/Limiter_/limiter_}"
-    release_name="${release_name/.bin/}"
     
     if [ -z "$filename" ]; then
         echo "Unsupported architecture: $(uname -m)"
@@ -51,17 +49,23 @@ download_program() {
     
     echo "Downloading $filename..."
     
-    local download_url=$(curl -s "https://api.github.com/repos/$REPO_OWNER/$REPO_NAME/releases/latest" | \
-        jq -r ".assets[] | select(.name == \"$release_name\") | .browser_download_url")
+    # Try to get the download URL from release assets
+    local api_response=$(curl -s "https://api.github.com/repos/$REPO_OWNER/$REPO_NAME/releases/latest")
     
-    if [ -n "$download_url" ] && [ "$download_url" != "null" ]; then
-        curl -L "$download_url" -o "$filename"
-        chmod +x "$filename"
-        echo "Download complete: $filename"
-    else
-        echo "No pre-built binary found. Running from source instead."
-        return 1
+    # Check if we got a valid response
+    if echo "$api_response" | jq -e '.assets' > /dev/null 2>&1; then
+        local download_url=$(echo "$api_response" | jq -r ".assets[] | select(.name == \"$filename\") | .browser_download_url")
+        
+        if [ -n "$download_url" ] && [ "$download_url" != "null" ]; then
+            curl -L "$download_url" -o "$filename"
+            chmod +x "$filename"
+            echo "Download complete: $filename"
+            return 0
+        fi
     fi
+    
+    echo "No pre-built binary found. Running from source instead."
+    return 1
 }
 
 # Update the binary
