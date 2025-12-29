@@ -1,0 +1,10 @@
+httpx==0.27.2
+python-telegram-bot==21.10
+aiohttp<=4
+ipinfo==5.1.1
+requests
+cachetools
+typer[all]>=0.9.0
+rich>=13.0.0
+fastapi>=0.109.0
+uvicorn>=0.27.0

@@ -1,0 +1,21 @@
+{
+  "panel": {
+    "domain": "your-panel-domain.com:8443",
+    "username": "your_username",
+    "password": "your_password"
+  },
+  "telegram": {
+    "bot_token": "YOUR_BOT_TOKEN",
+    "admins": []
+  },
+  "limits": {
+    "general": 2,
+    "special": {}
+  },
+  "except_users": [],
+  "check_interval": 60,
+  "time_to_active_users": 900,
+  "country_code": "",
+  "disable_method": "status",
+  "disabled_group_id": null
+}

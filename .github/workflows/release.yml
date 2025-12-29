@@ -1,0 +1,123 @@
+name: Build and Release Limiter
+
+on:
+  push:
+    branches: [ main, master ]
+    tags: [ 'v*' ]
+  pull_request:
+    branches: [ main, master ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        architecture: [x86_64, aarch64]
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.11'
+    
+    - name: Set up QEMU (for cross-compilation)
+      if: matrix.architecture == 'aarch64'
+      uses: docker/setup-qemu-action@v3
+      with:
+        platforms: arm64
+    
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+        pip install pyinstaller
+    
+    - name: Build binary for x86_64
+      if: matrix.architecture == 'x86_64'
+      run: |
+        pyinstaller limiter.spec
+        mv dist/limiter dist/limiter_amd64
+    
+    - name: Build binary for aarch64 (ARM64)
+      if: matrix.architecture == 'aarch64'
+      run: |
+        # Use Docker for cross-compilation
+        docker run --rm --platform linux/arm64 -v $PWD:/workspace -w /workspace python:3.11-slim bash -c "
+          apt-get update && apt-get install -y gcc &&
+          pip install --upgrade pip &&
+          pip install -r requirements.txt &&
+          pip install pyinstaller &&
+          pyinstaller limiter.spec &&
+          mv dist/limiter dist/limiter_arm64
+        "
+    
+    - name: Upload artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: limiter-${{ matrix.architecture }}
+        path: dist/limiter_*
+        retention-days: 1
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push' && (startsWith(github.ref, 'refs/tags/v') || github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master')
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Download all artifacts
+      uses: actions/download-artifact@v4
+      with:
+        path: ./artifacts
+    
+    - name: Prepare release files
+      run: |
+        mkdir -p release
+        cp artifacts/limiter-x86_64/limiter_amd64 release/
+        cp artifacts/limiter-aarch64/limiter_arm64 release/
+        # Create a symlink for the default limiter.bin (x86_64)
+        ln -sf limiter_amd64 release/limiter.bin
+        chmod +x release/*
+    
+    - name: Get version from Python file or generate timestamp
+      id: get_version
+      run: |
+        if grep -q "VERSION\s*=" limiter.py; then
+          VERSION=$(python -c "import re; content=open('limiter.py').read(); match=re.search(r'VERSION\s*=\s*[\"\'](.*?)[\"\']', content); print(match.group(1) if match else 'latest')")
+        else
+          VERSION="latest-$(date +'%Y%m%d-%H%M%S')"
+        fi
+        echo "version=$VERSION" >> $GITHUB_OUTPUT
+        echo "tag=v$VERSION" >> $GITHUB_OUTPUT
+    
+    - name: Create/Update Release
+      uses: softprops/action-gh-release@v1
+      with:
+        tag_name: ${{ steps.get_version.outputs.tag }}
+        name: "Release ${{ steps.get_version.outputs.version }}"
+        body: |
+          ## Limiter ${{ steps.get_version.outputs.version }}
+          
+          ### Download Instructions:
+          - **For x86_64 (AMD64) systems**: Download `limiter_amd64` or `limiter.bin`
+          - **For ARM64 (aarch64) systems**: Download `limiter_arm64`
+          
+          ### Changes in this release:
+          - Auto-generated release from commit ${{ github.sha }}
+          
+          ### Installation:
+          1. Download the appropriate binary for your architecture
+          2. Make it executable: `chmod +x limiter_*`
+          3. Run it: `./limiter_amd64` or `./limiter_arm64`
+        files: |
+          release/limiter.bin
+          release/limiter_amd64
+          release/limiter_arm64
+        draft: false
+        prerelease: false
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
