@@ -3213,9 +3213,11 @@ async def document_message_handler(update: Update, context: ContextTypes.DEFAULT
             context.user_data["waiting_for"] = None
             return
         
-        if 'BOT_TOKEN' not in config_data:
+        # Check for bot_token in the correct nested location
+        bot_token = config_data.get('telegram', {}).get('bot_token')
+        if not bot_token:
             await update.message.reply_html(
-                text="❌ Missing BOT_TOKEN in config file!",
+                text="❌ Missing telegram.bot_token in config file!",
                 reply_markup=create_back_to_main_keyboard()
             )
             context.user_data["waiting_for"] = None

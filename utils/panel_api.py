@@ -718,10 +718,13 @@ async def get_all_panel_users(panel_data: PanelType) -> set[str] | ValueError:
     """
     max_attempts = 5
     all_usernames = set()
-    offset = 0
     limit = 100  # Fetch 100 users per request
     
     for attempt in range(max_attempts):
+        # Reset for each attempt
+        all_usernames.clear()
+        offset = 0
+        
         force_refresh = attempt > 0
         get_panel_token = await get_token(panel_data, force_refresh=force_refresh)
         if isinstance(get_panel_token, ValueError):
@@ -732,7 +735,9 @@ async def get_all_panel_users(panel_data: PanelType) -> set[str] | ValueError:
         }
         
         # Paginate through all users
-        while True:
+        pagination_success = True
+        while pagination_success:
+            page_success = False
             for scheme in ["https", "http"]:
                 url = f"{scheme}://{panel_data.panel_domain}/api/users?offset={offset}&limit={limit}"
                 try:
@@ -763,12 +768,15 @@ async def get_all_panel_users(panel_data: PanelType) -> set[str] | ValueError:
                         if isinstance(user, dict) and "username" in user:
                             all_usernames.add(user["username"])
                     
+                    logger.debug(f"Fetched page: offset={offset}, got {len(users)} users, total so far: {len(all_usernames)}")
+                    
                     # Check if we've fetched all users
                     if len(users) < limit or offset + len(users) >= total:
-                        logger.info(f"Fetched {len(all_usernames)} users from panel")
+                        logger.info(f"Fetched {len(all_usernames)} users from panel (total in API: {total})")
                         return all_usernames
                     
                     offset += limit
+                    page_success = True
                     break  # Success, continue to next page
                     
                 except SSLError:
@@ -784,8 +792,11 @@ async def get_all_panel_users(panel_data: PanelType) -> set[str] | ValueError:
                     message = f"An unexpected error occurred: {error}"
                     logger.error(message)
                     continue
-            else:
-                # Both schemes failed, retry
+            
+            # If we get here, both schemes failed for this page
+            if not page_success:
+                pagination_success = False
+                logger.warning(f"Failed to fetch page at offset {offset}, will retry attempt")
                 break
         
         await asyncio.sleep(min(30, random.randint(2, 5) * (attempt + 1)))
@@ -878,9 +889,23 @@ async def cleanup_deleted_users(panel_data: PanelType) -> dict:
         panel_users = await get_all_panel_users(panel_data)
         logger.info(f"Found {len(panel_users)} users in panel")
         
+        # Safety check: if no users found, something is wrong - abort cleanup
+        if len(panel_users) == 0:
+            logger.error("No users found in panel - aborting cleanup to prevent data loss")
+            raise ValueError("No users found in panel. API may be unreachable or returning empty data.")
+        
         # Read current config
         data = await read_config()
         config_changed = False
+        
+        # Additional safety: check if we would remove more than 50% of special limits
+        special_limits = data.get("limits", {}).get("special", {})
+        if special_limits:
+            users_to_remove = [u for u in special_limits.keys() if u not in panel_users]
+            if len(users_to_remove) > len(special_limits) * 0.5 and len(users_to_remove) > 5:
+                logger.warning(f"Would remove {len(users_to_remove)} of {len(special_limits)} special limits - this seems too many!")
+                logger.warning(f"Panel returned {len(panel_users)} users. First 10: {list(panel_users)[:10]}")
+                raise ValueError(f"Safety check failed: Would remove {len(users_to_remove)} of {len(special_limits)} users. This may indicate an API issue.")
         
         # Check special limits
         special_limits = data.get("limits", {}).get("special", {})
