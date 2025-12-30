@@ -387,14 +387,14 @@ async def handle_group_filter_menu_callback(query, _context: ContextTypes.DEFAUL
 async def handle_group_filter_toggle_callback(query, _context: ContextTypes.DEFAULT_TYPE):
     """Handle toggle callback for group filter."""
     try:
+        from utils.read_config import save_config_value, invalidate_config_cache
+        
         config_data = await read_config()
+        filter_config = config_data.get("group_filter", {})
+        current_state = filter_config.get("enabled", False)
         
-        if "group_filter" not in config_data:
-            config_data["group_filter"] = {"enabled": True, "mode": "include", "group_ids": []}
-        else:
-            config_data["group_filter"]["enabled"] = not config_data["group_filter"].get("enabled", False)
-        
-        await write_json_file(config_data)
+        await save_config_value("group_filter_enabled", "true" if not current_state else "false")
+        await invalidate_config_cache()
         
         # Refresh the menu
         await handle_group_filter_menu_callback(query, _context)
@@ -412,14 +412,10 @@ async def handle_group_filter_toggle_callback(query, _context: ContextTypes.DEFA
 async def handle_group_filter_mode_callback(query, _context: ContextTypes.DEFAULT_TYPE, mode: str):
     """Handle mode selection callback for group filter."""
     try:
-        config_data = await read_config()
+        from utils.read_config import save_config_value, invalidate_config_cache
         
-        if "group_filter" not in config_data:
-            config_data["group_filter"] = {"enabled": False, "mode": mode, "group_ids": []}
-        else:
-            config_data["group_filter"]["mode"] = mode
-        
-        await write_json_file(config_data)
+        await save_config_value("group_filter_mode", mode)
+        await invalidate_config_cache()
         
         # Refresh the menu
         await handle_group_filter_menu_callback(query, _context)
@@ -437,19 +433,20 @@ async def handle_group_filter_mode_callback(query, _context: ContextTypes.DEFAUL
 async def handle_group_filter_toggle_group_callback(query, _context: ContextTypes.DEFAULT_TYPE, group_id: int):
     """Handle group toggle callback for group filter."""
     try:
+        from utils.read_config import save_config_value, invalidate_config_cache
+        
         config_data = await read_config()
+        filter_config = config_data.get("group_filter", {})
+        current_ids = filter_config.get("group_ids", [])
         
-        if "group_filter" not in config_data:
-            config_data["group_filter"] = {"enabled": False, "mode": "include", "group_ids": [group_id]}
+        if group_id in current_ids:
+            current_ids.remove(group_id)
         else:
-            current_ids = config_data["group_filter"].get("group_ids", [])
-            if group_id in current_ids:
-                current_ids.remove(group_id)
-            else:
-                current_ids.append(group_id)
-            config_data["group_filter"]["group_ids"] = current_ids
+            current_ids.append(group_id)
         
-        await write_json_file(config_data)
+        # Save as comma-separated string
+        await save_config_value("group_filter_ids", ",".join(str(gid) for gid in current_ids))
+        await invalidate_config_cache()
         
         # Refresh the menu
         await handle_group_filter_menu_callback(query, _context)
