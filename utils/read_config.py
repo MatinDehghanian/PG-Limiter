@@ -3,10 +3,25 @@ Configuration module for PG-Limiter.
 Reads settings from:
 - Environment variables (.env) for static settings
 - Database for dynamic settings that can be changed via Telegram
+- Redis cache for fast access (with fallback to in-memory)
 """
 
 import os
 from typing import Any, Dict, List, Optional
+
+from utils.logs import get_logger
+
+# Try to import Redis cache
+try:
+    from utils.redis_cache import (
+        get_cached_config, cache_config, invalidate_config as redis_invalidate_config
+    )
+    REDIS_CACHE_AVAILABLE = True
+except ImportError:
+    REDIS_CACHE_AVAILABLE = False
+
+# Module logger
+config_logger = get_logger("read_config")
 
 # Try to import database module
 try:
@@ -15,9 +30,25 @@ try:
 except ImportError:
     DB_AVAILABLE = False
 
-# Cache for config
+# In-memory cache fallback
 _config_cache: Dict[str, Any] = {}
 _cache_loaded = False
+
+
+async def invalidate_config_cache():
+    """Invalidate configuration cache (Redis and in-memory)."""
+    global _config_cache, _cache_loaded
+    
+    if REDIS_CACHE_AVAILABLE:
+        try:
+            await redis_invalidate_config()
+            config_logger.debug("🔧 Redis config cache invalidated")
+        except Exception as e:
+            config_logger.warning(f"Failed to invalidate Redis config cache: {e}")
+    
+    _config_cache = {}
+    _cache_loaded = False
+    config_logger.info("🔧 Configuration cache invalidated")
 
 
 def _parse_admin_ids(admin_ids_str: str) -> List[int]:
@@ -125,6 +156,7 @@ def get_config_sync() -> Dict[str, Any]:
 async def read_config(check_required_elements: bool = False) -> Dict[str, Any]:
     """
     Read and return merged configuration from ENV and DB.
+    Uses Redis cache when available for fast access.
     
     Args:
         check_required_elements: If True, validate required settings
@@ -133,6 +165,23 @@ async def read_config(check_required_elements: bool = False) -> Dict[str, Any]:
         Complete configuration dictionary
     """
     global _config_cache, _cache_loaded
+    
+    # Try Redis cache first
+    if REDIS_CACHE_AVAILABLE and not check_required_elements:
+        try:
+            cached = await get_cached_config()
+            if cached:
+                config_logger.debug("🔧 Using Redis cached config")
+                return cached
+        except Exception as e:
+            config_logger.warning(f"Redis config cache error: {e}")
+    
+    # Check in-memory cache
+    if _cache_loaded and _config_cache and not check_required_elements:
+        config_logger.debug("🔧 Using in-memory cached config")
+        return _config_cache
+    
+    config_logger.debug("🔧 Loading fresh configuration...")
     
     # Load ENV config
     env_config = load_env_config()
@@ -213,6 +262,14 @@ async def read_config(check_required_elements: bool = False) -> Dict[str, Any]:
     
     _config_cache = config
     _cache_loaded = True
+    
+    # Store in Redis cache
+    if REDIS_CACHE_AVAILABLE:
+        try:
+            await cache_config(config)
+            config_logger.debug("🔧 Config stored in Redis cache")
+        except Exception as e:
+            config_logger.warning(f"Failed to cache config in Redis: {e}")
     
     return config
 

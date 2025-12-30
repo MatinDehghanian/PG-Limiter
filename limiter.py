@@ -29,7 +29,14 @@ from utils.panel_api import (
 from utils.read_config import read_config
 from utils.types import PanelType
 
-VERSION = "0.4.2"
+# Import Redis cache utilities
+try:
+    from utils.redis_cache import get_cache, close_cache, get_cache_stats
+    REDIS_AVAILABLE = True
+except ImportError:
+    REDIS_AVAILABLE = False
+
+VERSION = "0.5.0"
 
 # Main logger
 main_logger = get_logger("limiter.main")
@@ -48,6 +55,19 @@ async def main():
     log_startup_info("Limiter", f"v{VERSION}")
     main_logger.info(f"🚀 Starting Limiter v{VERSION}")
     main_logger.info("=" * 50)
+    
+    # Initialize Redis cache
+    if REDIS_AVAILABLE:
+        try:
+            cache = await get_cache()
+            if cache.is_connected():
+                main_logger.info("✓ Redis cache connected")
+            else:
+                main_logger.info("⚠ Redis not available, using in-memory cache fallback")
+        except Exception as e:
+            main_logger.warning(f"Redis initialization failed: {e}, using in-memory fallback")
+    else:
+        main_logger.info("ℹ Redis cache module not available, using in-memory cache")
     
     # Start Telegram bot
     main_logger.debug("Starting Telegram bot task...")
@@ -143,6 +163,13 @@ if __name__ == "__main__":
             asyncio.run(main())
         except KeyboardInterrupt:
             main_logger.info("🛑 Received keyboard interrupt, shutting down...")
+            # Close Redis connection
+            if REDIS_AVAILABLE:
+                try:
+                    asyncio.run(close_cache())
+                    main_logger.info("✓ Redis cache closed")
+                except Exception:
+                    pass
             log_shutdown_info("Limiter", "Keyboard interrupt")
             break
         except Exception as er:  # pylint: disable=broad-except

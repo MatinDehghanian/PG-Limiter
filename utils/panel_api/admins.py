@@ -84,7 +84,7 @@ async def get_admins(panel_data: PanelType, force_refresh: bool = False) -> list
             except httpx.HTTPStatusError:
                 elapsed = (time.perf_counter() - start_time) * 1000
                 if response.status_code == 401:
-                    invalidate_token_cache()
+                    await invalidate_token_cache()
                     admins_logger.warning("Got 401 error, invalidating token cache and retrying")
                 elif response.status_code == 403:
                     log_api_request("GET", url, 403, elapsed, "Forbidden")

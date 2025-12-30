@@ -85,7 +85,7 @@ async def all_user(panel_data: PanelType) -> list[UserType] | ValueError:
             except httpx.HTTPStatusError:
                 elapsed = (time.perf_counter() - start_time) * 1000
                 if response.status_code == 401:
-                    invalidate_token_cache()
+                    await invalidate_token_cache()
                     users_logger.warning("Got 401 error, invalidating token cache and retrying")
                 log_api_request("GET", url, response.status_code, elapsed, f"HTTP {response.status_code}")
                 message = f"[{response.status_code}] {response.text}"
@@ -200,7 +200,7 @@ async def get_all_panel_users(panel_data: PanelType) -> set[str] | ValueError:
                 except httpx.HTTPStatusError:
                     elapsed = (time.perf_counter() - start_time) * 1000
                     if response.status_code == 401:
-                        invalidate_token_cache()
+                        await invalidate_token_cache()
                         users_logger.warning("Got 401 error, invalidating token cache and retrying")
                     log_api_request("GET", url, response.status_code, elapsed, f"HTTP {response.status_code}")
                     message = f"[{response.status_code}] {response.text}"
@@ -274,7 +274,7 @@ async def check_user_exists(panel_data: PanelType, username: str) -> bool:
                         return False
                     elif response.status_code == 401:
                         log_api_request("GET", url, 401, elapsed, "Unauthorized")
-                        invalidate_token_cache()
+                        await invalidate_token_cache()
                         users_logger.warning("Got 401 error, invalidating token cache and retrying")
                         break
                     else:
@@ -357,7 +357,7 @@ async def get_user_details(panel_data: PanelType, username: str) -> dict | Value
             except httpx.HTTPStatusError:
                 elapsed = (time.perf_counter() - start_time) * 1000
                 if response.status_code == 401:
-                    invalidate_token_cache()
+                    await invalidate_token_cache()
                     users_logger.warning("Got 401 error, invalidating token cache and retrying")
                 if response.status_code == 404:
                     log_api_request("GET", url, 404, elapsed)
@@ -462,7 +462,7 @@ async def update_user_groups(panel_data: PanelType, username: str, group_ids: li
             except httpx.HTTPStatusError:
                 elapsed = (time.perf_counter() - start_time) * 1000
                 if response.status_code == 401:
-                    invalidate_token_cache()
+                    await invalidate_token_cache()
                     users_logger.warning("Got 401 error, invalidating token cache and retrying")
                 log_api_request("PUT", url, response.status_code, elapsed, f"HTTP {response.status_code}")
                 message = f"[{response.status_code}] {response.text}"
@@ -598,7 +598,7 @@ async def enable_user_by_status(panel_data: PanelType, username: str) -> bool:
             except httpx.HTTPStatusError:
                 elapsed = (time.perf_counter() - start_time) * 1000
                 if response.status_code == 401:
-                    invalidate_token_cache()
+                    await invalidate_token_cache()
                 log_api_request("PUT", url, response.status_code, elapsed, f"HTTP {response.status_code}")
                 continue
             except httpx.TimeoutException:
@@ -765,7 +765,7 @@ async def disable_user_by_status(panel_data: PanelType, username: str) -> bool:
             except httpx.HTTPStatusError:
                 elapsed = (time.perf_counter() - start_time) * 1000
                 if response.status_code == 401:
-                    invalidate_token_cache()
+                    await invalidate_token_cache()
                 log_api_request("PUT", url, response.status_code, elapsed, f"HTTP {response.status_code}")
                 continue
             except httpx.TimeoutException:

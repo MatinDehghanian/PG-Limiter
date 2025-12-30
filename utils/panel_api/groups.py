@@ -82,7 +82,7 @@ async def get_groups(panel_data: PanelType) -> list[dict] | ValueError:
             except httpx.HTTPStatusError:
                 elapsed = (time.perf_counter() - start_time) * 1000
                 if response.status_code == 401:
-                    invalidate_token_cache()
+                    await invalidate_token_cache()
                     groups_logger.warning("Got 401 error, invalidating token cache and retrying")
                 log_api_request("GET", url, response.status_code, elapsed, f"HTTP {response.status_code}")
                 message = f"[{response.status_code}] {response.text}"

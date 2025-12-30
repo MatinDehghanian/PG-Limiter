@@ -96,7 +96,7 @@ async def admin_filter_toggle(update: Update, _context: ContextTypes.DEFAULT_TYP
         new_state = not current_state
         
         await save_config_value("admin_filter_enabled", "true" if new_state else "false")
-        invalidate_config_cache()
+        await invalidate_config_cache()
         
         status = "✅ Enabled" if new_state else "❌ Disabled"
         await update.message.reply_html(
@@ -127,7 +127,7 @@ async def admin_filter_mode(update: Update, context: ContextTypes.DEFAULT_TYPE):
             from utils.read_config import save_config_value, invalidate_config_cache
             
             await save_config_value("admin_filter_mode", mode)
-            invalidate_config_cache()
+            await invalidate_config_cache()
             
             if mode == "include":
                 desc = "Only users of specified admins will be monitored"
@@ -174,7 +174,7 @@ async def admin_filter_set(update: Update, context: ContextTypes.DEFAULT_TYPE):
             
             # Save as comma-separated string
             await save_config_value("admin_filter_usernames", ",".join(admin_usernames))
-            invalidate_config_cache()
+            await invalidate_config_cache()
             
             await update.message.reply_html(
                 text=f"✅ Admin filter set to: <code>{admin_usernames}</code>"
@@ -224,7 +224,7 @@ async def admin_filter_add(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
         current_admins.append(admin_username)
         await save_config_value("admin_filter_usernames", ",".join(current_admins))
-        invalidate_config_cache()
+        await invalidate_config_cache()
         
         await update.message.reply_html(
             text=f"✅ Added admin <code>{admin_username}</code> to filter.\n"
@@ -267,7 +267,7 @@ async def admin_filter_remove(update: Update, context: ContextTypes.DEFAULT_TYPE
         
         current_admins.remove(admin_username)
         await save_config_value("admin_filter_usernames", ",".join(current_admins))
-        invalidate_config_cache()
+        await invalidate_config_cache()
         
         await update.message.reply_html(
             text=f"✅ Removed admin <code>{admin_username}</code> from filter.\n"

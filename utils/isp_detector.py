@@ -1,12 +1,20 @@
 """
 ISP Detection Module
 This module provides functionality to detect ISP information for IP addresses
+Uses Redis cache when available for fast lookups, with fallback to in-memory and database.
 """
 
 import asyncio
 import aiohttp
 from typing import Dict, Optional
 from utils.logs import logger
+
+# Try to import Redis cache
+try:
+    from utils.redis_cache import get_cached_isp, cache_isp
+    REDIS_CACHE_AVAILABLE = True
+except ImportError:
+    REDIS_CACHE_AVAILABLE = False
 
 # Try to import database-backed subnet cache
 try:
@@ -65,7 +73,8 @@ class ISPDetector:
     
     async def get_isp_info(self, ip: str) -> Dict[str, str]:
         """
-        Get ISP information for a given IP address
+        Get ISP information for a given IP address.
+        Checks Redis cache first, then memory, then database, finally API.
         
         Args:
             ip (str): IP address to lookup
@@ -73,7 +82,19 @@ class ISPDetector:
         Returns:
             Dict[str, str]: Dictionary containing ISP information
         """
-        # Check memory cache first
+        # Check Redis cache first (fastest)
+        if REDIS_CACHE_AVAILABLE:
+            try:
+                cached = await get_cached_isp(ip)
+                if cached:
+                    logger.debug(f"ISP Redis cache hit for {ip}")
+                    # Also store in memory cache
+                    self.cache[ip] = cached
+                    return cached
+            except Exception as e:
+                logger.warning(f"Redis cache lookup failed for {ip}: {e}")
+        
+        # Check memory cache
         if ip in self.cache:
             return self.cache[ip]
         
@@ -82,8 +103,9 @@ class ISPDetector:
             try:
                 cached = await self._db_cache.get_cached_isp(ip)
                 if cached:
-                    # Copy to memory cache
+                    # Copy to memory cache and Redis
                     self.cache[ip] = cached
+                    await self._cache_isp_result(ip, cached)
                     logger.debug(f"ISP cache hit for {ip} (subnet cache)")
                     return cached
             except Exception as e:
@@ -92,7 +114,7 @@ class ISPDetector:
         # If use_fallback_only is enabled, skip ipinfo.io and use ip-api.com directly
         if self.use_fallback_only:
             result = await self._get_isp_fallback(ip)
-            await self._save_to_db_cache(ip, result)
+            await self._cache_isp_result(ip, result)
             return result
         
         # If we're rate limited, return default info immediately
@@ -138,8 +160,8 @@ class ISPDetector:
                     }
                     self.cache[ip] = isp_info
                     self.last_request_time = asyncio.get_event_loop().time()
-                    # Save to database cache
-                    await self._save_to_db_cache(ip, isp_info)
+                    # Save to all caches (Redis + database)
+                    await self._cache_isp_result(ip, isp_info)
                     return isp_info
                 elif response.status == 429:
                     # Rate limited - set flag and return default
@@ -149,7 +171,7 @@ class ISPDetector:
                     # Forbidden - try fallback API
                     logger.warning(f"ipinfo.io returned 403 for {ip}, trying fallback API...")
                     result = await self._get_isp_fallback(ip)
-                    await self._save_to_db_cache(ip, result)
+                    await self._cache_isp_result(ip, result)
                     return result
                 else:
                     response_text = await response.text()
@@ -159,13 +181,13 @@ class ISPDetector:
             logger.error(f"Timeout getting ISP info for {ip}")
             # Try fallback on timeout
             result = await self._get_isp_fallback(ip)
-            await self._save_to_db_cache(ip, result)
+            await self._cache_isp_result(ip, result)
             return result
         except Exception as e:
             logger.error(f"Error getting ISP info for {ip}: {type(e).__name__}: {e}")
             # Try fallback on any error
             result = await self._get_isp_fallback(ip)
-            await self._save_to_db_cache(ip, result)
+            await self._cache_isp_result(ip, result)
             return result
         
         # Return default info if lookup fails
@@ -192,6 +214,22 @@ class ISPDetector:
                 )
             except Exception as e:
                 logger.warning(f"Failed to save ISP to database cache: {e}")
+    
+    async def _cache_isp_result(self, ip: str, isp_info: Dict[str, str]):
+        """Cache ISP result to Redis (primary) and database (backup)"""
+        if isp_info.get("isp") == "Unknown ISP":
+            return
+        
+        # Cache to Redis (7 day TTL)
+        if REDIS_CACHE_AVAILABLE:
+            try:
+                await cache_isp(ip, isp_info)
+                logger.debug(f"Cached ISP for {ip} in Redis")
+            except Exception as e:
+                logger.warning(f"Failed to cache ISP in Redis: {e}")
+        
+        # Also save to database as backup
+        await self._save_to_db_cache(ip, isp_info)
     
     async def _get_isp_fallback(self, ip: str) -> Dict[str, str]:
         """

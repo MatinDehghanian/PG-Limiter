@@ -2,6 +2,7 @@
   <img src="https://img.shields.io/badge/Python-3.10+-blue?logo=python&logoColor=white" alt="Python">
   <img src="https://img.shields.io/badge/License-AGPL--3.0-green" alt="License">
   <img src="https://img.shields.io/badge/Platform-Linux%20%7C%20macOS-lightgrey" alt="Platform">
+  <img src="https://img.shields.io/badge/Version-0.5.0-orange" alt="Version">
 </p>
 
 <h1 align="center">🛡️ PG-Limiter</h1>
@@ -10,7 +11,7 @@
   <b>Advanced IP Connection Limiter for <a href="https://github.com/PasarGuard/panel">PasarGuard</a> Panel</b>
   <br><br>
   Monitor and limit concurrent IP connections per user with real-time SSE log streaming,<br>
-  Telegram bot control, REST API, CLI interface, and intelligent warning system.
+  Telegram bot control, REST API, CLI interface, Redis caching, and intelligent warning system.
 </p>
 
 ---
@@ -25,6 +26,9 @@
 - [CLI Interface](#-cli-interface)
 - [REST API](#-rest-api)
 - [Disable Methods](#-disable-methods)
+- [Redis Caching](#-redis-caching)
+- [Logging](#-logging)
+- [Project Architecture](#-project-architecture)
 - [FAQ](#-faq)
 - [License](#-license)
 - [Credits](#-credits)
@@ -33,6 +37,8 @@
 ---
 
 ## ✨ Features
+
+### Core Features
 
 | Feature | Description |
 |---------|-------------|
@@ -46,12 +52,29 @@
 | 🔄 **Auto Recovery** | Automatic user re-enabling after timeout |
 | 📁 **Group-based Disable** | Move users to restricted group instead of disabling |
 | 📱 **Multi-node Support** | Monitor all connected PasarGuard nodes |
-| 💾 **Backup/Restore** | Backup and restore all settings |
+
+### Advanced Features (v0.4.x)
+
+| Feature | Description |
+|---------|-------------|
+| 🚀 **Redis Caching** | High-performance caching with Redis (with in-memory fallback) |
+| 📝 **Enhanced Logging** | Comprehensive logging with file rotation and colored output |
+| 🏗️ **Modular Architecture** | Clean, maintainable codebase with separated handlers |
+| 👤 **Admin Filter** | Filter users by admin ownership |
+| 👥 **Group Filter** | Only monitor specific user groups |
+| ⚖️ **Punishment System** | Auto-escalate penalties for repeat violators |
+| 🔍 **ISP Detection** | Detect and cache ISP information for IPs |
+| 💿 **SQLite Database** | Fast persistent storage with async support |
+| 🐳 **Docker + Redis** | Production-ready Docker Compose setup |
+
+### Data Management
+
+| Feature | Description |
+|---------|-------------|
+| 💾 **Backup/Restore** | Backup and restore all settings via Telegram |
 | 🚫 **Exception List** | Exclude specific users from limiting |
 | 🧹 **Auto Cleanup** | Remove deleted users from limiter config |
 | 🔍 **Smart Skip** | Skip disabling users that don't exist in panel |
-| 💿 **SQLite Database** | Fast persistent storage with ISP caching |
-| 🐳 **Docker Support** | Easy deployment with Docker Compose |
 
 ---
 
@@ -60,6 +83,7 @@
 - **Python 3.10+**
 - **PasarGuard Panel** (latest version)
 - **Telegram Bot Token** (from [@BotFather](https://t.me/BotFather))
+- **Redis** (optional, but recommended for production)
 
 ---
 
@@ -122,7 +146,8 @@ python3 limiter.py
 | `/var/lib/pg-limiter/data/` | SQLite database |
 
 Docker volumes:
-- `/var/lib/pg-limiter/` → Persistent storage
+- `/var/lib/pg-limiter/` → Persistent storage for database and logs
+- `redis-data` → Redis persistence (AOF enabled)
 
 ### Fixing "externally-managed-environment" Error
 
@@ -174,6 +199,11 @@ API_PORT=8080
 API_USERNAME=admin
 API_PASSWORD=secret
 
+# Redis Cache (Optional - falls back to in-memory if unavailable)
+REDIS_URL=redis://localhost:6379/0
+REDIS_PASSWORD=
+REDIS_SSL=false
+
 # Timezone
 TZ=Asia/Tehran
 
@@ -194,6 +224,9 @@ DATABASE_URL=sqlite+aiosqlite:///./data/pg_limiter.db
 | `CHECK_INTERVAL` | int | 60 | Check interval in seconds |
 | `TIME_TO_ACTIVE_USERS` | int | 900 | Re-enable timeout in seconds |
 | `COUNTRY_CODE` | string | "" | Filter IPs by country (IR/RU/CN) |
+| `REDIS_URL` | string | redis://localhost:6379/0 | Redis connection URL |
+| `REDIS_PASSWORD` | string | "" | Redis password (optional) |
+| `REDIS_SSL` | bool | false | Enable SSL for Redis |
 
 ### Dynamic Settings (via Telegram Bot)
 
@@ -205,6 +238,7 @@ These settings can be changed from the Telegram bot Settings menu:
 - **Enhanced Details**: Show detailed ISP info
 - **Punishment System**: Auto-escalate repeat violators
 - **Group Filter**: Only monitor specific user groups
+- **Admin Filter**: Filter users by admin ownership
 
 ---
 
@@ -447,6 +481,138 @@ Moves user to a restricted group instead:
 
 ---
 
+## 🚀 Redis Caching
+
+PG-Limiter v0.5.0+ includes Redis caching for improved performance and persistence.
+
+### Benefits
+
+| Feature | Description |
+|---------|-------------|
+| ⚡ **Speed** | Sub-millisecond cache lookups |
+| 💾 **Persistence** | Cache survives restarts |
+| 🔄 **Shared State** | Multiple instances can share cache |
+| 📉 **Reduced API Calls** | Cached tokens, nodes, config, and ISP data |
+
+### Cache TTL Settings
+
+| Cache Type | TTL | Description |
+|------------|-----|-------------|
+| Token | 30 min | Panel API access tokens |
+| Nodes | 1 hour | Node list and status |
+| Config | 5 min | Dynamic configuration |
+| ISP | 7 days | IP-to-ISP mappings |
+| Panel Users | 1 min | User list from panel |
+
+### Docker Compose with Redis
+
+The default `docker-compose.yml` includes Redis:
+
+```yaml
+services:
+  pg-limiter:
+    image: ghcr.io/matindehghanian/pg-limiter:latest
+    depends_on:
+      - redis
+    environment:
+      - REDIS_URL=redis://redis:6379
+  
+  redis:
+    image: redis:7-alpine
+    command: redis-server --appendonly yes --maxmemory 128mb --maxmemory-policy allkeys-lru
+    volumes:
+      - redis-data:/data
+```
+
+### Running Without Redis
+
+Redis is optional. If Redis is unavailable, PG-Limiter automatically falls back to in-memory caching:
+
+```bash
+# In-memory cache will be used automatically if:
+# - Redis is not installed
+# - REDIS_URL is not set
+# - Redis connection fails
+```
+
+---
+
+## 📝 Logging
+
+PG-Limiter includes comprehensive logging with multiple outputs.
+
+### Log Outputs
+
+| Output | Description |
+|--------|-------------|
+| Console | Colored output for easy reading |
+| File | Rotating log files in `/var/lib/pg-limiter/logs/` |
+| Telegram | Critical errors sent to admins |
+
+### Log Levels
+
+```bash
+# Set log level via environment variable
+LOG_LEVEL=DEBUG  # DEBUG, INFO, WARNING, ERROR
+```
+
+### Log Files
+
+| File | Description |
+|------|-------------|
+| `limiter.log` | Main application logs |
+| `api.log` | API request/response logs |
+| `telegram.log` | Telegram bot logs |
+
+---
+
+## 🏗️ Project Architecture
+
+PG-Limiter follows a modular architecture for maintainability:
+
+```
+PG-Limiter/
+├── limiter.py              # Main entry point
+├── api_server.py           # REST API server
+├── cli_main.py             # CLI interface
+├── run_telegram.py         # Telegram bot runner
+│
+├── telegram_bot/
+│   ├── main.py            # Bot initialization
+│   ├── keyboards.py       # Inline keyboards
+│   └── handlers/          # Modular command handlers
+│       ├── admin.py       # Admin management
+│       ├── backup.py      # Backup/restore
+│       ├── limits.py      # Limit management
+│       ├── monitoring.py  # Connection monitoring
+│       ├── punishment.py  # Punishment system
+│       ├── reports.py     # Report generation
+│       ├── settings.py    # Bot settings
+│       └── users.py       # User management
+│
+├── utils/
+│   ├── redis_cache.py     # Redis caching layer
+│   ├── logs.py            # Logging configuration
+│   ├── isp_detector.py    # ISP detection
+│   ├── read_config.py     # Configuration management
+│   └── panel_api/         # Panel API client
+│       ├── auth.py        # Authentication
+│       ├── users.py       # User operations
+│       ├── nodes.py       # Node operations
+│       └── groups.py      # Group operations
+│
+└── db/
+    ├── database.py        # Database connection
+    ├── models.py          # SQLAlchemy models
+    └── crud/              # Database operations
+        ├── config.py
+        ├── users.py
+        ├── limits.py
+        └── violations.py
+```
+
+---
+
 ## ❓ FAQ
 
 <details>
@@ -539,6 +705,28 @@ Add:
 
 # Run on reboot
 @reboot cd /path/to/limiter && python3 limiter.py
+```
+</details>
+
+<details>
+<summary><b>Is Redis required?</b></summary>
+
+No, Redis is optional. PG-Limiter automatically falls back to in-memory caching if Redis is unavailable. However, Redis is recommended for production as it provides:
+- Cache persistence across restarts
+- Better performance for high-traffic scenarios
+- Shared cache for multiple instances
+</details>
+
+<details>
+<summary><b>How do I check cache status?</b></summary>
+
+The limiter logs cache connection status on startup:
+```
+✓ Redis cache connected
+```
+or
+```
+⚠ Redis not available, using in-memory cache fallback
 ```
 </details>
 
