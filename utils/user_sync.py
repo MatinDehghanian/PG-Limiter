@@ -29,7 +29,7 @@ async def get_all_users_with_details(panel_data: PanelType) -> list[dict]:
     """
     import httpx
     from utils.panel_api.auth import get_token, invalidate_token_cache
-    from utils.panel_api import log_api_request
+    from utils.logs import log_api_request
     import time
     import random
     
