@@ -1,6 +1,6 @@
 """
-This module contains utility functions for reading and writing to a JSON file,
-managing admin IDs, and handling special limits for users and more...
+This module contains utility functions for managing admin IDs,
+handling special limits for users, and interacting with the database.
 """
 
 import json
@@ -14,6 +14,13 @@ try:
 except ImportError:
     print("Module 'httpx' is not installed use: 'pip install httpx' to install it")
     sys.exit()
+
+# Import database utilities
+try:
+    from db import get_db, UserLimitCRUD, ExceptUserCRUD, ConfigCRUD
+    DB_AVAILABLE = True
+except ImportError:
+    DB_AVAILABLE = False
 
 
 async def get_token(panel_data: PanelType) -> PanelType | ValueError:
@@ -68,6 +75,7 @@ async def write_json_file(data: dict):
 async def add_admin_to_config(new_admin_id: int) -> int | None:
     """
     Adds a new admin ID to the config.json file.
+    Note: For Docker deployment, admins should be set via ADMIN_IDS env variable.
 
     Args:
         new_admin_id: The ID of the new admin.
@@ -75,6 +83,22 @@ async def add_admin_to_config(new_admin_id: int) -> int | None:
     Returns:
         The ID of the new admin if it was added, None otherwise.
     """
+    # First check if admins are configured via environment variable
+    admin_ids_env = os.environ.get("ADMIN_IDS", "")
+    if admin_ids_env:
+        # Admin IDs are managed via environment variable
+        # Can't dynamically add to env var, but check if already in list
+        try:
+            admins = [int(id.strip()) for id in admin_ids_env.split(",") if id.strip()]
+            if int(new_admin_id) in admins:
+                return new_admin_id
+        except ValueError:
+            pass
+        # Return None since we can't add to env var dynamically
+        # User needs to update ADMIN_IDS env var
+        return None
+    
+    # Fall back to config.json for non-Docker deployments
     if os.path.exists("config.json"):
         data = await read_json_file()
         if "telegram" not in data:
@@ -94,19 +118,31 @@ async def add_admin_to_config(new_admin_id: int) -> int | None:
 
 async def check_admin() -> list[int] | None:
     """
-    Checks and returns the list of admins from the config.json file.
+    Checks and returns the list of admins.
+    First checks ADMIN_IDS environment variable, then falls back to config.json.
 
     Returns:
         The list of admins.
     """
+    # First check environment variable (Docker deployment)
+    admin_ids_env = os.environ.get("ADMIN_IDS", "")
+    if admin_ids_env:
+        try:
+            return [int(id.strip()) for id in admin_ids_env.split(",") if id.strip()]
+        except ValueError:
+            pass
+    
+    # Fall back to config.json for non-Docker deployments
     if os.path.exists("config.json"):
         data = await read_json_file()
         return data.get("telegram", {}).get("admins", [])
+    
+    return []
 
 
 async def handel_special_limit(username: str, limit: int) -> list:
     """
-    Handles the special limit for a given username.
+    Handles the special limit for a given username using database.
 
     Args:
         username: The username to handle the special limit for.
@@ -116,6 +152,18 @@ async def handel_special_limit(username: str, limit: int) -> list:
         A list where the first element is a flag indicating whether the limit was set before,
         and the second element is the new limit.
     """
+    if DB_AVAILABLE:
+        async for db in get_db():
+            # Check if limit was set before
+            existing_limit = await UserLimitCRUD.get_limit(db, username)
+            set_before = 1 if existing_limit is not None else 0
+            
+            # Set the new limit
+            await UserLimitCRUD.set_limit(db, username, limit)
+            await db.commit()
+            return [set_before, limit]
+    
+    # Fallback to config.json
     set_before = 0
     if os.path.exists("config.json"):
         data = await read_json_file()
@@ -136,6 +184,7 @@ async def handel_special_limit(username: str, limit: int) -> list:
 async def remove_admin_from_config(admin_id: int) -> bool:
     """
     Removes an admin from the configuration.
+    Note: In Docker deployment, admins are managed via ADMIN_IDS env var.
 
     Args:
         admin_id (int): The ID of the admin to be removed.
@@ -182,12 +231,27 @@ async def add_base_information(domain: str, password: str, username: str):
 
 async def get_special_limit_list() -> list | None:
     """
-    This function reads config file, retrieves the list of special limits,
+    This function retrieves the list of special limits from database,
     and returns this list in a format suitable for messaging (split into shorter messages).
 
     Returns:
         list
     """
+    if DB_AVAILABLE:
+        async for db in get_db():
+            special_limits = await UserLimitCRUD.get_all(db)
+            if not special_limits:
+                return None
+            special_list = "\n".join(
+                [f"{key} : {value}" for key, value in special_limits.items()]
+            )
+            messages = special_list.split("\n")
+            shorter_messages = [
+                "\n".join(messages[i : i + 100]) for i in range(0, len(messages), 100)
+            ]
+            return shorter_messages
+    
+    # Fallback to config.json
     if os.path.exists("config.json"):
         data = await read_json_file()
         special_list = data.get("limits", {}).get("special", None)
@@ -206,12 +270,23 @@ async def get_special_limit_list() -> list | None:
 
 async def write_country_code_json(country_code: str) -> None:
     """
-    Writes the given country code to the config.json file.
+    Saves the country code to the database.
+    Falls back to config.json if database is not available.
 
     Args:
-        country_code: The country code to write to the file.
+        country_code: The country code to write.
     """
-    data = await read_json_file()
+    if DB_AVAILABLE:
+        async for db in get_db():
+            await ConfigCRUD.set(db, "country_code", country_code)
+            await db.commit()
+            return
+    
+    # Fallback to config.json
+    if os.path.exists("config.json"):
+        data = await read_json_file()
+    else:
+        data = {}
     if "monitoring" not in data:
         data["monitoring"] = {}
     data["monitoring"]["ip_location"] = country_code
@@ -220,9 +295,16 @@ async def write_country_code_json(country_code: str) -> None:
 
 async def add_except_user(except_user: str) -> str | None:
     """
-    Add a user to the exception list in the config file.
-    If the config file does not exist, it creates one.
+    Add a user to the exception list using database.
+    Falls back to config.json if database is not available.
     """
+    if DB_AVAILABLE:
+        async for db in get_db():
+            await ExceptUserCRUD.add(db, except_user)
+            await db.commit()
+            return except_user
+    
+    # Fallback to config.json
     if os.path.exists("config.json"):
         data = await read_json_file()
         if "limits" not in data:
@@ -242,9 +324,22 @@ async def add_except_user(except_user: str) -> str | None:
 
 async def show_except_users_handler() -> list | None:
     """
-    Retrieve the list of exception users from the config file.
+    Retrieve the list of exception users from the database.
     If the list is too long, it splits the list into shorter messages.
     """
+    if DB_AVAILABLE:
+        async for db in get_db():
+            except_users = await ExceptUserCRUD.get_all(db)
+            if not except_users:
+                return None
+            except_users_str = "\n".join([f"{user}" for user in except_users])
+            messages = except_users_str.split("\n")
+            shorter_messages = [
+                "\n".join(messages[i : i + 100]) for i in range(0, len(messages), 100)
+            ]
+            return shorter_messages
+    
+    # Fallback to config.json
     if os.path.exists("config.json"):
         data = await read_json_file()
         except_users = data.get("limits", {}).get("except_users", None)
@@ -261,8 +356,17 @@ async def show_except_users_handler() -> list | None:
 
 async def remove_except_user_from_config(user: str) -> str | None:
     """
-    Remove a user from the exception list in the config file.
+    Remove a user from the exception list using database.
     """
+    if DB_AVAILABLE:
+        async for db in get_db():
+            removed = await ExceptUserCRUD.remove(db, user)
+            await db.commit()
+            return user if removed else None
+    
+    # Fallback to config.json
+    if not os.path.exists("config.json"):
+        return None
     data = await read_json_file()
     except_users = data.get("limits", {}).get("except_users", [])
     if user in except_users:
@@ -275,9 +379,16 @@ async def remove_except_user_from_config(user: str) -> str | None:
 
 async def save_general_limit(limit: int) -> int:
     """
-    Save the general limit to the config file.
-    If the config file does not exist, it creates one.
+    Save the general limit to the database.
+    Falls back to config.json if database is not available.
     """
+    if DB_AVAILABLE:
+        async for db in get_db():
+            await ConfigCRUD.set(db, "general_limit", limit)
+            await db.commit()
+            return limit
+    
+    # Fallback to config.json
     if os.path.exists("config.json"):
         data = await read_json_file()
         if "limits" not in data:
@@ -292,9 +403,16 @@ async def save_general_limit(limit: int) -> int:
 
 async def save_check_interval(interval: int) -> int:
     """
-    Save the check interval to the config file.
-    If the config file does not exist, it creates one.
+    Save the check interval to the database.
+    Falls back to config.json if database is not available.
     """
+    if DB_AVAILABLE:
+        async for db in get_db():
+            await ConfigCRUD.set(db, "check_interval", interval)
+            await db.commit()
+            return interval
+    
+    # Fallback to config.json
     if os.path.exists("config.json"):
         data = await read_json_file()
         if "monitoring" not in data:
@@ -307,18 +425,25 @@ async def save_check_interval(interval: int) -> int:
     return interval
 
 
-async def save_time_to_active_users(time: int) -> int:
+async def save_time_to_active_users(time_val: int) -> int:
     """
-    Save the time to active users to the config file.
-    If the config file does not exist, it creates one.
+    Save the time to active users to the database.
+    Falls back to config.json if database is not available.
     """
+    if DB_AVAILABLE:
+        async for db in get_db():
+            await ConfigCRUD.set(db, "time_to_active_users", time_val)
+            await db.commit()
+            return time_val
+    
+    # Fallback to config.json
     if os.path.exists("config.json"):
         data = await read_json_file()
         if "monitoring" not in data:
             data["monitoring"] = {}
-        data["monitoring"]["time_to_active_users"] = time
+        data["monitoring"]["time_to_active_users"] = time_val
         await write_json_file(data)
-        return time
-    data = {"monitoring": {"time_to_active_users": time}}
+        return time_val
+    data = {"monitoring": {"time_to_active_users": time_val}}
     await write_json_file(data)
-    return time
+    return time_val
