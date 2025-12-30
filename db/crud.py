@@ -436,7 +436,7 @@ class SubnetISPCRUD:
     @staticmethod
     async def get_stats(db: AsyncSession) -> dict:
         """Get ISP cache statistics."""
-        result = await db.execute(select(func.count(SubnetISP.id)))
+        result = await db.execute(select(func.count(SubnetISP.id)))  # pylint: disable=not-callable
         count = result.scalar()
         
         result = await db.execute(select(func.sum(SubnetISP.hit_count)))
@@ -513,7 +513,7 @@ class ViolationHistoryCRUD:
         """Get count of violations for a user within the time window."""
         cutoff = time.time() - (window_hours * 3600)
         result = await db.execute(
-            select(func.count(ViolationHistory.id))
+            select(func.count(ViolationHistory.id))  # pylint: disable=not-callable
             .where(
                 and_(
                     ViolationHistory.username == username,
