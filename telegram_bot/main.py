@@ -55,6 +55,7 @@ from telegram_bot.keyboards import (
     create_reports_menu_keyboard,
     create_admin_menu_keyboard,
     create_back_to_main_keyboard,
+    create_disable_method_keyboard,
 )
 
 # Import handlers
@@ -77,6 +78,9 @@ from telegram_bot.handlers.limits import (
     handle_general_limit_preset_callback,
     handle_general_limit_custom_callback,
     handle_set_special_limit_callback,
+    handle_general_limit_input,
+    handle_special_limit_username_input,
+    handle_special_limit_number_input,
 )
 from telegram_bot.handlers.users import (
     set_except_users,
@@ -102,6 +106,20 @@ from telegram_bot.handlers.settings import (
     country_code_handler,
     set_ipinfo_token,
     ipinfo_token_handler,
+    handle_country_menu_callback,
+    handle_country_selection_callback,
+    handle_interval_menu_callback,
+    handle_interval_preset_callback,
+    handle_interval_custom_callback,
+    handle_time_menu_callback,
+    handle_time_preset_callback,
+    handle_time_custom_callback,
+    handle_enhanced_menu_callback,
+    handle_enhanced_toggle_callback,
+    handle_ipinfo_callback,
+    handle_check_interval_input,
+    handle_time_to_active_input,
+    handle_ipinfo_token_input,
 )
 from telegram_bot.handlers.monitoring import (
     monitoring_status,
@@ -154,6 +172,7 @@ from telegram_bot.handlers.admin_filter import (
 # Import utilities
 from telegram_bot.utils import check_admin, add_admin_to_config, add_except_user, handel_special_limit
 from utils.logs import get_logger
+from utils.read_config import save_config_value
 
 # Module logger
 bot_logger = get_logger("telegram.bot")
@@ -464,11 +483,105 @@ async def callback_query_handler(update: Update, context: ContextTypes.DEFAULT_T
         return
     
     if data == CallbackData.SET_IPINFO:
+        await handle_ipinfo_callback(query, context)
+        return
+    
+    # Country code callbacks
+    if data == CallbackData.COUNTRY_NONE:
+        await handle_country_menu_callback(query, context)
+        return
+    
+    if data == CallbackData.COUNTRY_IR:
+        await handle_country_selection_callback(query, context, "IR")
+        return
+    
+    if data == CallbackData.COUNTRY_RU:
+        await handle_country_selection_callback(query, context, "RU")
+        return
+    
+    if data == CallbackData.COUNTRY_CN:
+        await handle_country_selection_callback(query, context, "CN")
+        return
+    
+    # Interval callbacks
+    if data == CallbackData.INTERVAL_120:
+        await handle_interval_preset_callback(query, context, 120)
+        return
+    
+    if data == CallbackData.INTERVAL_180:
+        await handle_interval_preset_callback(query, context, 180)
+        return
+    
+    if data == CallbackData.INTERVAL_240:
+        await handle_interval_preset_callback(query, context, 240)
+        return
+    
+    if data == CallbackData.INTERVAL_CUSTOM:
+        await handle_interval_custom_callback(query, context)
+        return
+    
+    # Time to active callbacks
+    if data == CallbackData.TIME_300:
+        await handle_time_preset_callback(query, context, 300)
+        return
+    
+    if data == CallbackData.TIME_600:
+        await handle_time_preset_callback(query, context, 600)
+        return
+    
+    if data == CallbackData.TIME_900:
+        await handle_time_preset_callback(query, context, 900)
+        return
+    
+    if data == CallbackData.TIME_CUSTOM:
+        await handle_time_custom_callback(query, context)
+        return
+    
+    # Enhanced details callbacks
+    if data == CallbackData.ENHANCED_ON:
+        await handle_enhanced_toggle_callback(query, context, True)
+        return
+    
+    if data == CallbackData.ENHANCED_OFF:
+        await handle_enhanced_toggle_callback(query, context, False)
+        return
+    
+    # Disable method callbacks
+    if data == CallbackData.DISABLE_METHOD_MENU:
         await query.edit_message_text(
-            text="🔑 <b>Set IPInfo Token</b>\n\n"
-                 "Use the command:\n"
-                 "<code>/set_ipinfo_token YOUR_TOKEN</code>",
+            text="🚫 <b>Disable Method</b>\n\n"
+                 "Choose how users should be disabled:\n\n"
+                 "• <b>By Status</b>: Set user status to 'disabled'\n"
+                 "• <b>By Group</b>: Move user to a disabled group",
+            reply_markup=create_disable_method_keyboard(),
+            parse_mode="HTML"
+        )
+        return
+    
+    if data == CallbackData.DISABLE_BY_STATUS:
+        await save_config_value("disable_method", "status")
+        await query.edit_message_text(
+            text="✅ Disable method set to <b>By Status</b>",
             reply_markup=create_back_to_main_keyboard(),
+            parse_mode="HTML"
+        )
+        return
+    
+    if data == CallbackData.DISABLE_BY_GROUP:
+        await save_config_value("disable_method", "group")
+        await query.edit_message_text(
+            text="✅ Disable method set to <b>By Group</b>\n\n"
+                 "Make sure you have configured the disabled group in your panel.",
+            reply_markup=create_back_to_main_keyboard(),
+            parse_mode="HTML"
+        )
+        return
+    
+    # Back to settings callback
+    if data == CallbackData.BACK_SETTINGS:
+        await query.edit_message_text(
+            text="⚙️ <b>Settings Menu</b>\n\nConfigure your bot settings:",
+            reply_markup=create_settings_menu_keyboard(),
             parse_mode="HTML"
         )
         return
@@ -583,8 +696,31 @@ async def text_message_handler(update: Update, context: ContextTypes.DEFAULT_TYP
         return
     
     # Handle different input types based on waiting_for state
-    # This will be extended by handler modules as needed
+    if waiting_for == "general_limit":
+        await handle_general_limit_input(update, context)
+        return
     
+    if waiting_for == "special_limit_username":
+        await handle_special_limit_username_input(update, context)
+        return
+    
+    if waiting_for == "special_limit_number":
+        await handle_special_limit_number_input(update, context)
+        return
+    
+    if waiting_for == "check_interval":
+        await handle_check_interval_input(update, context)
+        return
+    
+    if waiting_for == "time_to_active":
+        await handle_time_to_active_input(update, context)
+        return
+    
+    if waiting_for == "ipinfo_token":
+        await handle_ipinfo_token_input(update, context)
+        return
+    
+    # Reset if no handler found
     context.user_data["waiting_for"] = None
 
 

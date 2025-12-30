@@ -153,7 +153,7 @@ async def handel_special_limit(username: str, limit: int) -> list:
         and the second element is the new limit.
     """
     if DB_AVAILABLE:
-        async for db in get_db():
+        async with get_db() as db:
             # Check if limit was set before
             existing_limit = await UserLimitCRUD.get_limit(db, username)
             set_before = 1 if existing_limit is not None else 0
@@ -238,7 +238,7 @@ async def get_special_limit_list() -> list | None:
         list
     """
     if DB_AVAILABLE:
-        async for db in get_db():
+        async with get_db() as db:
             special_limits = await UserLimitCRUD.get_all(db)
             if not special_limits:
                 return None
@@ -277,7 +277,7 @@ async def write_country_code_json(country_code: str) -> None:
         country_code: The country code to write.
     """
     if DB_AVAILABLE:
-        async for db in get_db():
+        async with get_db() as db:
             await ConfigCRUD.set(db, "country_code", country_code)
             await db.commit()
             return
@@ -299,7 +299,7 @@ async def add_except_user(except_user: str) -> str | None:
     Falls back to config.json if database is not available.
     """
     if DB_AVAILABLE:
-        async for db in get_db():
+        async with get_db() as db:
             await ExceptUserCRUD.add(db, except_user)
             await db.commit()
             return except_user
@@ -328,7 +328,7 @@ async def show_except_users_handler() -> list | None:
     If the list is too long, it splits the list into shorter messages.
     """
     if DB_AVAILABLE:
-        async for db in get_db():
+        async with get_db() as db:
             except_users = await ExceptUserCRUD.get_all(db)
             if not except_users:
                 return None
@@ -359,7 +359,7 @@ async def remove_except_user_from_config(user: str) -> str | None:
     Remove a user from the exception list using database.
     """
     if DB_AVAILABLE:
-        async for db in get_db():
+        async with get_db() as db:
             removed = await ExceptUserCRUD.remove(db, user)
             await db.commit()
             return user if removed else None
@@ -383,7 +383,7 @@ async def save_general_limit(limit: int) -> int:
     Falls back to config.json if database is not available.
     """
     if DB_AVAILABLE:
-        async for db in get_db():
+        async with get_db() as db:
             await ConfigCRUD.set(db, "general_limit", limit)
             await db.commit()
             return limit
@@ -407,7 +407,7 @@ async def save_check_interval(interval: int) -> int:
     Falls back to config.json if database is not available.
     """
     if DB_AVAILABLE:
-        async for db in get_db():
+        async with get_db() as db:
             await ConfigCRUD.set(db, "check_interval", interval)
             await db.commit()
             return interval
@@ -431,7 +431,7 @@ async def save_time_to_active_users(time_val: int) -> int:
     Falls back to config.json if database is not available.
     """
     if DB_AVAILABLE:
-        async for db in get_db():
+        async with get_db() as db:
             await ConfigCRUD.set(db, "time_to_active_users", time_val)
             await db.commit()
             return time_val
