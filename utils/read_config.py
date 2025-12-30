@@ -203,21 +203,8 @@ async def read_config(check_required_elements: bool = False) -> Dict[str, Any]:
     # Merge DB config (dynamic settings changeable via Telegram)
     db_config = db_data.get("db_config", {})
     
-    # Dynamic settings from DB (override ENV values if set in DB)
-    if "check_interval" in db_config:
-        try:
-            config["check_interval"] = int(db_config["check_interval"])
-        except (ValueError, TypeError):
-            pass
-    
-    if "time_to_active_users" in db_config:
-        try:
-            config["time_to_active_users"] = int(db_config["time_to_active_users"])
-        except (ValueError, TypeError):
-            pass
-    
-    if "country_code" in db_config:
-        config["country_code"] = db_config["country_code"]
+    # Note: check_interval, time_to_active_users, and country_code are ENV-only
+    # They cannot be changed via Telegram bot
     
     if "general_limit" in db_config:
         try:

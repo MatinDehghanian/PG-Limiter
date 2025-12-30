@@ -163,7 +163,7 @@ async def check_ip_used() -> dict:
     config_data = await read_config()
     general_limit = config_data.get("limits", {}).get("general", 2)
     special_limit = config_data.get("limits", {}).get("special", {})
-    except_users = config_data.get("limits", {}).get("except_users", [])
+    except_users = config_data.get("except_users", [])  # except_users is at root level
     show_enhanced_details = config_data.get("display", {}).get("show_enhanced_details", True)
     
     # Initialize ISP detector with token from config
@@ -422,7 +422,7 @@ async def check_users_usage(panel_data: PanelType):
     limits_config = config_data.get("limits", {})
     api_config = config_data.get("api", {})
     
-    except_users = limits_config.get("except_users", [])
+    except_users = config_data.get("except_users", [])  # except_users is at root level
     special_limit = limits_config.get("special", {})
     limit_number = limits_config.get("general", 2)
     

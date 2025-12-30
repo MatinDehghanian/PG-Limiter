@@ -37,12 +37,9 @@ from telegram_bot.constants import (
     GET_SPECIAL_LIMIT,
     GET_LIMIT_NUMBER,
     GET_CHAT_ID_TO_REMOVE,
-    SET_COUNTRY_CODE,
     SET_EXCEPT_USERS,
     REMOVE_EXCEPT_USER,
     GET_GENERAL_LIMIT_NUMBER,
-    GET_CHECK_INTERVAL,
-    GET_TIME_TO_ACTIVE_USERS,
     SET_IPINFO_TOKEN,
     RESTORE_CONFIG,
 )
@@ -105,27 +102,11 @@ from telegram_bot.handlers.settings import (
     get_domain,
     get_username,
     get_password,
-    set_check_interval,
-    check_interval_handler,
-    set_time_to_active,
-    time_to_active_handler,
-    set_country_code,
-    country_code_handler,
     set_ipinfo_token,
     ipinfo_token_handler,
-    handle_country_menu_callback,
-    handle_country_selection_callback,
-    handle_interval_menu_callback,
-    handle_interval_preset_callback,
-    handle_interval_custom_callback,
-    handle_time_menu_callback,
-    handle_time_preset_callback,
-    handle_time_custom_callback,
     handle_enhanced_menu_callback,
     handle_enhanced_toggle_callback,
     handle_ipinfo_callback,
-    handle_check_interval_input,
-    handle_time_to_active_input,
     handle_ipinfo_token_input,
 )
 from telegram_bot.handlers.monitoring import (
@@ -493,57 +474,6 @@ async def callback_query_handler(update: Update, context: ContextTypes.DEFAULT_T
         await handle_ipinfo_callback(query, context)
         return
     
-    # Country code callbacks
-    if data == CallbackData.COUNTRY_NONE:
-        await handle_country_menu_callback(query, context)
-        return
-    
-    if data == CallbackData.COUNTRY_IR:
-        await handle_country_selection_callback(query, context, "IR")
-        return
-    
-    if data == CallbackData.COUNTRY_RU:
-        await handle_country_selection_callback(query, context, "RU")
-        return
-    
-    if data == CallbackData.COUNTRY_CN:
-        await handle_country_selection_callback(query, context, "CN")
-        return
-    
-    # Interval callbacks
-    if data == CallbackData.INTERVAL_120:
-        await handle_interval_preset_callback(query, context, 120)
-        return
-    
-    if data == CallbackData.INTERVAL_180:
-        await handle_interval_preset_callback(query, context, 180)
-        return
-    
-    if data == CallbackData.INTERVAL_240:
-        await handle_interval_preset_callback(query, context, 240)
-        return
-    
-    if data == CallbackData.INTERVAL_CUSTOM:
-        await handle_interval_custom_callback(query, context)
-        return
-    
-    # Time to active callbacks
-    if data == CallbackData.TIME_300:
-        await handle_time_preset_callback(query, context, 300)
-        return
-    
-    if data == CallbackData.TIME_600:
-        await handle_time_preset_callback(query, context, 600)
-        return
-    
-    if data == CallbackData.TIME_900:
-        await handle_time_preset_callback(query, context, 900)
-        return
-    
-    if data == CallbackData.TIME_CUSTOM:
-        await handle_time_custom_callback(query, context)
-        return
-    
     # Enhanced details callbacks
     if data == CallbackData.ENHANCED_ON:
         await handle_enhanced_toggle_callback(query, context, True)
@@ -735,14 +665,6 @@ async def text_message_handler(update: Update, context: ContextTypes.DEFAULT_TYP
         await handle_special_limit_number_input(update, context)
         return
     
-    if waiting_for == "check_interval":
-        await handle_check_interval_input(update, context)
-        return
-    
-    if waiting_for == "time_to_active":
-        await handle_time_to_active_input(update, context)
-        return
-    
     if waiting_for == "ipinfo_token":
         await handle_ipinfo_token_input(update, context)
         return
@@ -881,27 +803,6 @@ application.add_handler(
 application.add_handler(CommandHandler("show_except_users", show_except_users))
 
 # Settings
-application.add_handler(
-    ConversationHandler(
-        entry_points=[CommandHandler("country_code", set_country_code)],
-        states={SET_COUNTRY_CODE: [MessageHandler(filters.TEXT & ~filters.COMMAND, country_code_handler)]},
-        fallbacks=[],
-    )
-)
-application.add_handler(
-    ConversationHandler(
-        entry_points=[CommandHandler("set_check_interval", set_check_interval)],
-        states={GET_CHECK_INTERVAL: [MessageHandler(filters.TEXT & ~filters.COMMAND, check_interval_handler)]},
-        fallbacks=[],
-    )
-)
-application.add_handler(
-    ConversationHandler(
-        entry_points=[CommandHandler("set_time_to_active_users", set_time_to_active)],
-        states={GET_TIME_TO_ACTIVE_USERS: [MessageHandler(filters.TEXT & ~filters.COMMAND, time_to_active_handler)]},
-        fallbacks=[],
-    )
-)
 application.add_handler(
     ConversationHandler(
         entry_points=[CommandHandler("set_ipinfo_token", set_ipinfo_token)],

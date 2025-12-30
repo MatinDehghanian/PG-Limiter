@@ -167,7 +167,6 @@ HELP_TEXT = """
 <b>🔧 Configuration:</b>
 /start - Show main menu
 /create_config - Setup panel info
-/set_ipinfo_token - Set IPInfo API token
 
 <b>🎯 Limits:</b>
 /set_special_limit - Set user-specific limit
@@ -180,10 +179,8 @@ HELP_TEXT = """
 /show_except_users - Show except users
 
 <b>⚙️ Settings:</b>
-/country_code - Set country filter
-/set_check_interval - Set check interval
-/set_time_to_active_users - Set active time
 /show_enhanced_details - Toggle enhanced info
+/set_ipinfo_token - Set IPInfo API token
 
 <b>📡 Monitoring:</b>
 /monitoring_status - Current monitoring status

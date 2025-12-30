@@ -38,14 +38,7 @@ def create_settings_menu_keyboard():
             InlineKeyboardButton("🚫 Disable Method", callback_data=CallbackData.DISABLE_METHOD_MENU),
         ],
         [
-            InlineKeyboardButton("🌍 Country Code", callback_data=CallbackData.COUNTRY_NONE),
-            InlineKeyboardButton("⏱️ Check Interval", callback_data=CallbackData.INTERVAL_CUSTOM),
-        ],
-        [
-            InlineKeyboardButton("⏰ Active Time", callback_data=CallbackData.TIME_CUSTOM),
             InlineKeyboardButton("📋 Enhanced Details", callback_data=CallbackData.ENHANCED_ON),
-        ],
-        [
             InlineKeyboardButton("⚖️ Punishment", callback_data=CallbackData.PUNISHMENT_MENU),
         ],
         [
