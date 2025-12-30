@@ -117,6 +117,10 @@ from telegram_bot.handlers.backup import (
     send_backup,
     restore_config,
     restore_config_handler,
+    migrate_backup_start,
+    migrate_backup_handler,
+    migrate_backup_cancel,
+    MIGRATE_WAITING_FILE,
 )
 from telegram_bot.handlers.punishment import (
     punishment_status,
@@ -499,6 +503,15 @@ application.add_handler(
         entry_points=[CommandHandler("restore", restore_config)],
         states={RESTORE_CONFIG: [MessageHandler(filters.Document.ALL, restore_config_handler)]},
         fallbacks=[],
+    )
+)
+
+# Migrate backup (JSON to SQLite)
+application.add_handler(
+    ConversationHandler(
+        entry_points=[CommandHandler("migrate_backup", migrate_backup_start)],
+        states={MIGRATE_WAITING_FILE: [MessageHandler(filters.Document.ALL, migrate_backup_handler)]},
+        fallbacks=[CommandHandler("cancel", migrate_backup_cancel)],
     )
 )
 

@@ -219,6 +219,7 @@ HELP_TEXT = """
 <b>💾 Backup:</b>
 /backup - Create config backup
 /restore - Restore from backup
+/migrate_backup - Migrate JSON backup to database
 
 <b>ℹ️ Info:</b>
 /help - Show this help

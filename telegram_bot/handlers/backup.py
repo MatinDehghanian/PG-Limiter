@@ -9,8 +9,9 @@ import shutil
 import tempfile
 import zipfile
 from datetime import datetime
+from typing import Optional
 
-from telegram import Update
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
     ContextTypes,
     ConversationHandler,
@@ -18,6 +19,21 @@ from telegram.ext import (
 
 from telegram_bot.constants import RESTORE_CONFIG
 from telegram_bot.handlers.admin import check_admin_privilege
+from utils.logs import get_logger
+
+backup_logger = get_logger("backup")
+
+# Conversation state for migration
+MIGRATE_WAITING_FILE = 100
+
+
+def create_migrate_keyboard():
+    """Create keyboard for migration options."""
+    keyboard = [
+        [InlineKeyboardButton("📥 Send JSON File", callback_data="migrate_send_file")],
+        [InlineKeyboardButton("« Back", callback_data="settings_menu")],
+    ]
+    return InlineKeyboardMarkup(keyboard)
 
 
 async def send_backup(update: Update, _context: ContextTypes.DEFAULT_TYPE):
@@ -252,4 +268,283 @@ async def restore_config_handler(update: Update, context: ContextTypes.DEFAULT_T
         )
     
     context.user_data["waiting_for"] = None
+    return ConversationHandler.END
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# MIGRATE BACKUP - Full JSON backup migration to SQLite
+# ═══════════════════════════════════════════════════════════════════════════════
+
+
+async def migrate_backup_start(update: Update, _context: ContextTypes.DEFAULT_TYPE):
+    """Start the backup migration process."""
+    check = await check_admin_privilege(update)
+    if check is not None:
+        return check
+    
+    message = update.message or update.callback_query.message
+    
+    await message.reply_html(
+        "📥 <b>Migrate JSON Backup to Database</b>\n\n"
+        "This will import data from your old JSON backup files into the SQLite database.\n\n"
+        "<b>Supported files:</b>\n"
+        "• <code>config.json</code> - Configuration, limits, except users\n"
+        "• <code>.disable_users.json</code> - Disabled users list\n"
+        "• <code>.violation_history.json</code> - Violation records\n"
+        "• Any JSON file with the above format\n\n"
+        "📤 <b>Please send your JSON file now</b>\n\n"
+        "<i>Send /cancel to abort</i>"
+    )
+    return MIGRATE_WAITING_FILE
+
+
+async def migrate_backup_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handle the uploaded JSON file and migrate it to database."""
+    try:
+        if not update.message.document:
+            await update.message.reply_html(
+                "❌ Please send a JSON file.\n"
+                "Use /migrate_backup to try again."
+            )
+            return ConversationHandler.END
+        
+        file_name = update.message.document.file_name
+        
+        if not file_name.endswith('.json'):
+            await update.message.reply_html(
+                "❌ Please send a .json file.\n"
+                "Use /migrate_backup to try again."
+            )
+            return ConversationHandler.END
+        
+        await update.message.reply_text("⏳ Processing backup file...")
+        
+        # Download the file
+        file = await update.message.document.get_file()
+        file_content = await file.download_as_bytearray()
+        
+        try:
+            data = json.loads(file_content.decode('utf-8'))
+        except json.JSONDecodeError as e:
+            await update.message.reply_html(
+                f"❌ Invalid JSON format:\n<code>{str(e)}</code>"
+            )
+            return ConversationHandler.END
+        
+        # Migration statistics
+        stats = {
+            "config_items": 0,
+            "special_limits": 0,
+            "except_users": 0,
+            "disabled_users": 0,
+            "violations": 0,
+            "errors": [],
+        }
+        
+        from db import get_db
+        from db.crud import (
+            ConfigCRUD,
+            UserLimitCRUD,
+            ExceptUserCRUD,
+            DisabledUserCRUD,
+            ViolationHistoryCRUD,
+        )
+        
+        async with get_db() as db:
+            # ─────────────────────────────────────────────────────────
+            # Detect file type and migrate accordingly
+            # ─────────────────────────────────────────────────────────
+            
+            # Check if it's a config.json file
+            if "panel" in data or "limits" in data or "timing" in data:
+                backup_logger.info("Detected config.json format")
+                
+                # Migrate panel settings (for reference only - actual auth is from .env)
+                if "panel" in data:
+                    await ConfigCRUD.set(db, "panel_backup", data["panel"])
+                    stats["config_items"] += 1
+                
+                # Migrate limits
+                if "limits" in data:
+                    limits = data["limits"]
+                    
+                    # General limit
+                    if "general" in limits:
+                        await ConfigCRUD.set(db, "general_limit", limits["general"])
+                        stats["config_items"] += 1
+                    
+                    # Special limits
+                    special = limits.get("special", {})
+                    for username, limit in special.items():
+                        try:
+                            await UserLimitCRUD.set_limit(db, username, int(limit))
+                            stats["special_limits"] += 1
+                        except Exception as e:
+                            stats["errors"].append(f"Special limit {username}: {e}")
+                    
+                    # Except users from limits
+                    except_list = limits.get("except_users", [])
+                    for username in except_list:
+                        try:
+                            await ExceptUserCRUD.add(db, username, "Migrated from config.json")
+                            stats["except_users"] += 1
+                        except Exception as e:
+                            stats["errors"].append(f"Except user {username}: {e}")
+                
+                # Root-level except_users
+                if "except_users" in data and isinstance(data["except_users"], list):
+                    for username in data["except_users"]:
+                        try:
+                            await ExceptUserCRUD.add(db, username, "Migrated from config.json")
+                            stats["except_users"] += 1
+                        except Exception:
+                            pass  # May already exist
+                
+                # Timing settings
+                if "timing" in data:
+                    await ConfigCRUD.set(db, "timing", data["timing"])
+                    stats["config_items"] += 1
+                elif "check_interval" in data or "time_to_active_users" in data:
+                    timing = {
+                        "check_interval": data.get("check_interval", 60),
+                        "time_to_active_users": data.get("time_to_active_users", 900),
+                    }
+                    await ConfigCRUD.set(db, "timing", timing)
+                    stats["config_items"] += 1
+                
+                # Display settings
+                if "display" in data:
+                    await ConfigCRUD.set(db, "display", data["display"])
+                    stats["config_items"] += 1
+                
+                if "enhanced_details" in data:
+                    await ConfigCRUD.set(db, "enhanced_details", str(data["enhanced_details"]).lower())
+                    stats["config_items"] += 1
+                
+                # Disable method
+                if "disable_method" in data:
+                    await ConfigCRUD.set(db, "disable_method", str(data["disable_method"]))
+                    stats["config_items"] += 1
+                
+                if "disabled_group_id" in data:
+                    await ConfigCRUD.set(db, "disabled_group_id", str(data["disabled_group_id"]))
+                    stats["config_items"] += 1
+                
+                # Country code
+                if "country_code" in data:
+                    await ConfigCRUD.set(db, "country_code", data["country_code"])
+                    stats["config_items"] += 1
+                
+                # Punishment settings
+                if "punishment" in data:
+                    await ConfigCRUD.set(db, "punishment", data["punishment"])
+                    stats["config_items"] += 1
+                
+                # Group filter
+                if "group_filter" in data:
+                    await ConfigCRUD.set(db, "group_filter", data["group_filter"])
+                    stats["config_items"] += 1
+            
+            # Check if it's a .disable_users.json file
+            if "disabled_users" in data or "disable_user" in data or "enable_at" in data:
+                backup_logger.info("Detected disable_users.json format")
+                
+                disabled_users = data.get("disabled_users", data.get("disable_user", {}))
+                enable_at = data.get("enable_at", {})
+                
+                if isinstance(disabled_users, list):
+                    # Old format: list of usernames
+                    import time
+                    current_time = time.time()
+                    for username in disabled_users:
+                        try:
+                            await DisabledUserCRUD.add(
+                                db,
+                                username=username,
+                                disabled_at=current_time,
+                                reason="Migrated from JSON backup",
+                            )
+                            stats["disabled_users"] += 1
+                        except Exception as e:
+                            stats["errors"].append(f"Disabled user {username}: {e}")
+                elif isinstance(disabled_users, dict):
+                    # New format: {username: timestamp}
+                    for username, disabled_at in disabled_users.items():
+                        try:
+                            user_enable_at = enable_at.get(username)
+                            await DisabledUserCRUD.add(
+                                db,
+                                username=username,
+                                disabled_at=disabled_at,
+                                enable_at=user_enable_at,
+                                reason="Migrated from JSON backup",
+                            )
+                            stats["disabled_users"] += 1
+                        except Exception as e:
+                            stats["errors"].append(f"Disabled user {username}: {e}")
+            
+            # Check if it's a .violation_history.json file
+            if "violations" in data:
+                backup_logger.info("Detected violation_history.json format")
+                
+                violations = data["violations"]
+                for username, records in violations.items():
+                    if isinstance(records, list):
+                        for record in records:
+                            try:
+                                await ViolationHistoryCRUD.add(
+                                    db,
+                                    username=username,
+                                    step_applied=record.get("step_applied", 0),
+                                    disable_duration=record.get("disable_duration", 0),
+                                )
+                                stats["violations"] += 1
+                            except Exception as e:
+                                stats["errors"].append(f"Violation {username}: {e}")
+        
+        # Build result message
+        total = (
+            stats["config_items"] + 
+            stats["special_limits"] + 
+            stats["except_users"] + 
+            stats["disabled_users"] + 
+            stats["violations"]
+        )
+        
+        result_msg = (
+            f"✅ <b>Migration Complete!</b>\n\n"
+            f"📊 <b>Statistics:</b>\n"
+            f"• Config items: {stats['config_items']}\n"
+            f"• Special limits: {stats['special_limits']}\n"
+            f"• Except users: {stats['except_users']}\n"
+            f"• Disabled users: {stats['disabled_users']}\n"
+            f"• Violations: {stats['violations']}\n"
+            f"─────────────────\n"
+            f"<b>Total items:</b> {total}\n"
+        )
+        
+        if stats["errors"]:
+            result_msg += f"\n⚠️ <b>Errors ({len(stats['errors'])}):</b>\n"
+            for err in stats["errors"][:5]:  # Show first 5 errors
+                result_msg += f"• <code>{err}</code>\n"
+            if len(stats["errors"]) > 5:
+                result_msg += f"... and {len(stats['errors']) - 5} more\n"
+        
+        result_msg += "\n💡 <i>Changes take effect immediately, no restart needed.</i>"
+        
+        await update.message.reply_html(result_msg)
+        backup_logger.info(f"Migration complete: {stats}")
+        
+    except Exception as e:
+        backup_logger.error(f"Migration error: {e}")
+        await update.message.reply_html(
+            f"❌ <b>Migration failed:</b>\n<code>{str(e)}</code>"
+        )
+    
+    return ConversationHandler.END
+
+
+async def migrate_backup_cancel(update: Update, _context: ContextTypes.DEFAULT_TYPE):
+    """Cancel the migration process."""
+    await update.message.reply_text("❌ Migration cancelled.")
     return ConversationHandler.END
