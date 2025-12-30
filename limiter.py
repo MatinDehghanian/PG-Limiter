@@ -5,6 +5,7 @@ Monitors active connections and limits users based on their IP count.
 
 import argparse
 import asyncio
+import sys
 import time
 import traceback
 
@@ -20,7 +21,7 @@ from utils.get_logs import (
     init_node_status_message,
 )
 from utils.handel_dis_users import DisabledUsers
-from utils.logs import logger, log_startup_info, log_shutdown_info, get_logger
+from utils.logs import logger, log_startup_info, log_shutdown_info, get_logger, log_crash_info
 from utils.panel_api import (
     enable_dis_user,
     enable_selected_users,
@@ -36,7 +37,7 @@ try:
 except ImportError:
     REDIS_AVAILABLE = False
 
-VERSION = "0.5.3"
+VERSION = "0.5.4"
 
 # Main logger
 main_logger = get_logger("limiter.main")
@@ -158,6 +159,8 @@ async def main():
 
 if __name__ == "__main__":
     restart_count = 0
+    max_restarts = 5
+    
     while True:
         try:
             asyncio.run(main())
@@ -172,10 +175,24 @@ if __name__ == "__main__":
                     pass
             log_shutdown_info("Limiter", "Keyboard interrupt")
             break
+        except SystemExit as e:
+            if e.code != 0 and e.code is not None:
+                main_logger.error(f"System exit with code: {e.code}")
+            break
         except Exception as er:  # pylint: disable=broad-except
             restart_count += 1
-            main_logger.error(f"💥 Unexpected error (restart #{restart_count}): {er}")
-            main_logger.debug(f"Traceback:\n{traceback.format_exc()}")
+            exc_type, exc_value, exc_tb = sys.exc_info()
+            
+            # Use centralized crash logging
+            log_crash_info(exc_type, exc_value, exc_tb, component="Limiter")
             log_shutdown_info("Limiter", f"Error: {er}")
-            main_logger.info(f"⏳ Restarting in 10 seconds...")
-            time.sleep(10)
+            
+            if restart_count >= max_restarts:
+                main_logger.error(f"Maximum restart attempts ({max_restarts}) reached")
+                main_logger.error("Please check the logs and fix the issue")
+                break
+            
+            # Exponential backoff for restarts
+            delay = min(10 * (2 ** (restart_count - 1)), 120)
+            main_logger.info(f"⏳ Restart #{restart_count}/{max_restarts} in {delay} seconds...")
+            time.sleep(delay)

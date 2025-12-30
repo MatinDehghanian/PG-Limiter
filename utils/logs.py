@@ -297,6 +297,99 @@ def log_shutdown_info(component: str, reason: str = None):
     shutdown_logger.info(msg)
 
 
+def log_crash_info(exc_type, exc_value, exc_tb, component: str = "Unknown"):
+    """
+    Log detailed crash information with exact file and line number.
+    
+    Args:
+        exc_type: Exception type
+        exc_value: Exception value
+        exc_tb: Exception traceback
+        component: Name of the component that crashed
+    """
+    crash_logger = get_logger("crash")
+    
+    crash_logger.error("")
+    crash_logger.error("╔═══════════════════════════════════════════════════════════════╗")
+    crash_logger.error("║                    💥 CRASH DETECTED 💥                        ║")
+    crash_logger.error("╚═══════════════════════════════════════════════════════════════╝")
+    crash_logger.error(f"Component: {component}")
+    crash_logger.error("")
+    
+    # Extract the exact error location from traceback
+    if exc_tb:
+        # Walk to the last frame (actual error location)
+        tb = exc_tb
+        while tb.tb_next:
+            tb = tb.tb_next
+        
+        filename = tb.tb_frame.f_code.co_filename
+        lineno = tb.tb_lineno
+        func_name = tb.tb_frame.f_code.co_name
+        
+        # Try to read the actual line of code
+        try:
+            with open(filename, 'r', encoding='utf-8') as f:
+                lines = f.readlines()
+                if 0 < lineno <= len(lines):
+                    error_line = lines[lineno - 1].strip()
+                else:
+                    error_line = '<line not available>'
+        except (FileNotFoundError, IOError):
+            error_line = '<could not read file>'
+    else:
+        filename = 'unknown'
+        lineno = 0
+        func_name = 'unknown'
+        error_line = '<no traceback>'
+    
+    crash_logger.error(f"Error Type: {exc_type.__name__}")
+    crash_logger.error(f"Error Message: {exc_value}")
+    crash_logger.error(f"File: {filename}")
+    crash_logger.error(f"Line: {lineno}")
+    crash_logger.error(f"Function: {func_name}")
+    crash_logger.error(f"Code: {error_line}")
+    crash_logger.error("")
+    crash_logger.error("─── Full Traceback ───")
+    
+    # Log full traceback
+    tb_lines = traceback.format_exception(exc_type, exc_value, exc_tb)
+    for line in tb_lines:
+        for subline in line.rstrip().split('\n'):
+            crash_logger.error(subline)
+    
+    crash_logger.error("───────────────────────")
+    crash_logger.error("")
+    
+    # Also write to crash log file
+    try:
+        import datetime
+        crash_log_path = "/var/lib/pg-limiter/logs/crash.log"
+        # Ensure directory exists
+        os.makedirs(os.path.dirname(crash_log_path), exist_ok=True)
+        
+        with open(crash_log_path, 'a', encoding='utf-8') as crash_file:
+            timestamp = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+            crash_file.write(f"\n")
+            crash_file.write(f"═══════════════════════════════════════════════════════════════\n")
+            crash_file.write(f"CRASH REPORT - {timestamp}\n")
+            crash_file.write(f"Component: {component}\n")
+            crash_file.write(f"═══════════════════════════════════════════════════════════════\n")
+            crash_file.write(f"Error Type: {exc_type.__name__}\n")
+            crash_file.write(f"Error Message: {exc_value}\n")
+            crash_file.write(f"File: {filename}\n")
+            crash_file.write(f"Line: {lineno}\n")
+            crash_file.write(f"Function: {func_name}\n")
+            crash_file.write(f"Code: {error_line}\n")
+            crash_file.write(f"\n--- Full Traceback ---\n")
+            for line in tb_lines:
+                crash_file.write(line)
+            crash_file.write(f"───────────────────────\n\n")
+        crash_logger.info(f"Crash details saved to: {crash_log_path}")
+    except Exception as log_err:
+        crash_logger.warning(f"Could not write crash log: {log_err}")
+
+
 class PerformanceTimer:
     """Context manager for timing code blocks."""
 

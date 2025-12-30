@@ -1,6 +1,6 @@
 #!/bin/bash
 
-VERSION="0.5.3"
+VERSION="0.5.4"
 
 # Colors for output
 RED='\033[0;31m'
@@ -8,15 +8,53 @@ GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
 CYAN='\033[0;36m'
+MAGENTA='\033[0;35m'
 NC='\033[0m' # No Color
 
-log_info() { echo -e "${GREEN}✓${NC} $1"; }
-log_warn() { echo -e "${YELLOW}⚠${NC} $1"; }
-log_error() { echo -e "${RED}❌${NC} $1"; }
-log_debug() { echo -e "${CYAN}→${NC} $1"; }
-log_step() { echo -e "${BLUE}[$1/${TOTAL_STEPS}]${NC} $2"; }
+# Logging functions with timestamps
+get_timestamp() { date '+%Y-%m-%d %H:%M:%S'; }
+log_info() { echo -e "[$(get_timestamp)] ${GREEN}✓${NC} $1"; }
+log_warn() { echo -e "[$(get_timestamp)] ${YELLOW}⚠${NC} $1"; }
+log_error() { echo -e "[$(get_timestamp)] ${RED}❌${NC} $1"; }
+log_debug() { echo -e "[$(get_timestamp)] ${CYAN}→${NC} $1"; }
+log_step() { echo -e "[$(get_timestamp)] ${BLUE}[$1/${TOTAL_STEPS}]${NC} $2"; }
+log_crash() { echo -e "[$(get_timestamp)] ${MAGENTA}💥${NC} $1"; }
 
 TOTAL_STEPS=8
+CRASH_LOG="/var/lib/pg-limiter/logs/crash.log"
+RESTART_COUNT=0
+MAX_RESTARTS=2
+RESTART_DELAY=5
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# ERROR HANDLING AND SIGNAL TRAPS
+# ═══════════════════════════════════════════════════════════════════════════════
+
+# Trap for graceful shutdown
+cleanup() {
+    log_warn "Received shutdown signal, cleaning up..."
+    # Kill any background processes
+    jobs -p | xargs -r kill 2>/dev/null
+    log_info "PG-Limiter stopped gracefully"
+    exit 0
+}
+
+# Trap signals
+trap cleanup SIGTERM SIGINT SIGHUP
+
+# Function to log crash details
+log_crash_details() {
+    local exit_code=$1
+    local crash_time=$(get_timestamp)
+    
+    echo "" >> "$CRASH_LOG"
+    echo "═══════════════════════════════════════════════════════════════" >> "$CRASH_LOG"
+    echo "CRASH REPORT - $crash_time" >> "$CRASH_LOG"
+    echo "═══════════════════════════════════════════════════════════════" >> "$CRASH_LOG"
+    echo "Exit Code: $exit_code" >> "$CRASH_LOG"
+    echo "Restart Count: $RESTART_COUNT / $MAX_RESTARTS" >> "$CRASH_LOG"
+    echo "" >> "$CRASH_LOG"
+}
 
 echo "╔═══════════════════════════════════════════════════════════════╗"
 echo "║              PG-Limiter v$VERSION Starting...                   ║"
@@ -305,5 +343,177 @@ echo ""
 # Remove deprecated files
 rm -f /var/lib/pg-limiter/config.json /app/config.json 2>/dev/null
 
-# Start the main application with unbuffered output
-exec python -u limiter.py
+# ═══════════════════════════════════════════════════════════════════════════════
+# MAIN APPLICATION LOOP WITH CRASH RECOVERY
+# ═══════════════════════════════════════════════════════════════════════════════
+
+run_limiter() {
+    # Create a wrapper script that captures Python errors with full traceback
+    python -u -c "
+import sys
+import traceback
+import os
+import signal
+import datetime
+
+# Configure Python to show full tracebacks
+sys.tracebacklimit = 50
+
+def log_error(message):
+    timestamp = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+    print(f'[{timestamp}] ❌ {message}', file=sys.stderr, flush=True)
+
+def log_crash(message):
+    timestamp = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+    print(f'[{timestamp}] 💥 {message}', file=sys.stderr, flush=True)
+
+def write_crash_log(exc_type, exc_value, exc_tb):
+    '''Write detailed crash information to log file'''
+    crash_log = '/var/lib/pg-limiter/logs/crash.log'
+    timestamp = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+    
+    # Get full traceback
+    tb_lines = traceback.format_exception(exc_type, exc_value, exc_tb)
+    
+    # Extract the exact error location
+    if exc_tb:
+        # Walk to the last frame (actual error location)
+        tb = exc_tb
+        while tb.tb_next:
+            tb = tb.tb_next
+        
+        filename = tb.tb_frame.f_code.co_filename
+        lineno = tb.tb_lineno
+        func_name = tb.tb_frame.f_code.co_name
+        
+        # Try to read the actual line of code
+        try:
+            with open(filename, 'r') as f:
+                lines = f.readlines()
+                if 0 < lineno <= len(lines):
+                    error_line = lines[lineno - 1].strip()
+                else:
+                    error_line = '<line not available>'
+        except:
+            error_line = '<could not read file>'
+    else:
+        filename = 'unknown'
+        lineno = 0
+        func_name = 'unknown'
+        error_line = '<no traceback>'
+    
+    # Print to console with colors
+    print('', flush=True)
+    print('╔═══════════════════════════════════════════════════════════════╗', flush=True)
+    print('║                    💥 CRASH DETECTED 💥                        ║', flush=True)
+    print('╚═══════════════════════════════════════════════════════════════╝', flush=True)
+    print('', flush=True)
+    log_crash(f'Error Type: {exc_type.__name__}')
+    log_crash(f'Error Message: {exc_value}')
+    log_crash(f'File: {filename}')
+    log_crash(f'Line: {lineno}')
+    log_crash(f'Function: {func_name}')
+    log_crash(f'Code: {error_line}')
+    print('', flush=True)
+    print('─── Full Traceback ───', flush=True)
+    for line in tb_lines:
+        print(line, end='', flush=True)
+    print('───────────────────────', flush=True)
+    print('', flush=True)
+    
+    # Write to crash log file
+    try:
+        with open(crash_log, 'a') as f:
+            f.write(f'\\n')
+            f.write(f'═══════════════════════════════════════════════════════════════\\n')
+            f.write(f'CRASH REPORT - {timestamp}\\n')
+            f.write(f'═══════════════════════════════════════════════════════════════\\n')
+            f.write(f'Error Type: {exc_type.__name__}\\n')
+            f.write(f'Error Message: {exc_value}\\n')
+            f.write(f'File: {filename}\\n')
+            f.write(f'Line: {lineno}\\n')
+            f.write(f'Function: {func_name}\\n')
+            f.write(f'Code: {error_line}\\n')
+            f.write(f'\\n--- Full Traceback ---\\n')
+            for line in tb_lines:
+                f.write(line)
+            f.write(f'───────────────────────\\n')
+            f.write(f'\\n')
+        log_error(f'Crash details saved to: {crash_log}')
+    except Exception as e:
+        log_error(f'Could not write crash log: {e}')
+
+# Custom exception hook
+def exception_hook(exc_type, exc_value, exc_tb):
+    if issubclass(exc_type, KeyboardInterrupt):
+        sys.__excepthook__(exc_type, exc_value, exc_tb)
+        return
+    write_crash_log(exc_type, exc_value, exc_tb)
+    sys.exit(1)
+
+sys.excepthook = exception_hook
+
+# Handle signals gracefully
+def signal_handler(signum, frame):
+    timestamp = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+    signal_name = signal.Signals(signum).name
+    print(f'[{timestamp}] ⚠ Received {signal_name}, shutting down...', flush=True)
+    sys.exit(0)
+
+signal.signal(signal.SIGTERM, signal_handler)
+signal.signal(signal.SIGINT, signal_handler)
+
+# Import and run the main limiter
+try:
+    print('[$(get_timestamp)] 🚀 Starting limiter.py...', flush=True)
+    
+    # Use exec to run limiter.py so it replaces this process
+    exec(open('limiter.py').read())
+    
+except SystemExit as e:
+    if e.code != 0 and e.code is not None:
+        log_error(f'Limiter exited with code: {e.code}')
+    sys.exit(e.code if e.code is not None else 0)
+except Exception as e:
+    exc_type, exc_value, exc_tb = sys.exc_info()
+    write_crash_log(exc_type, exc_value, exc_tb)
+    sys.exit(1)
+"
+    return $?
+}
+
+# Main loop with restart logic
+while true; do
+    run_limiter
+    EXIT_CODE=$?
+    
+    if [ $EXIT_CODE -eq 0 ]; then
+        log_info "Limiter exited normally"
+        break
+    fi
+    
+    RESTART_COUNT=$((RESTART_COUNT + 1))
+    
+    log_crash "Limiter crashed with exit code: $EXIT_CODE"
+    log_crash "Restart attempt: $RESTART_COUNT / $MAX_RESTARTS"
+    
+    if [ $RESTART_COUNT -ge $MAX_RESTARTS ]; then
+        log_error "Maximum restart attempts ($MAX_RESTARTS) reached"
+        log_error "Check crash logs at: $CRASH_LOG"
+        log_error "Last exit code: $EXIT_CODE"
+        exit $EXIT_CODE
+    fi
+    
+    log_warn "Restarting in $RESTART_DELAY seconds..."
+    sleep $RESTART_DELAY
+    
+    # Increase delay for subsequent restarts (exponential backoff)
+    RESTART_DELAY=$((RESTART_DELAY * 2))
+    if [ $RESTART_DELAY -gt 60 ]; then
+        RESTART_DELAY=60
+    fi
+    
+    echo ""
+    log_info "Attempting restart #$RESTART_COUNT..."
+    echo ""
+done
