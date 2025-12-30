@@ -340,8 +340,8 @@ class DisabledUserCRUD:
                     to_enable.append(d.username)
             # Otherwise use global time_to_active
             elif d.disabled_at <= cutoff:
-                # Only auto-enable if not a permanent disable (punishment_step check)
-                # TODO: Check if this is an unlimited disable
+                # Auto-enable based on global time_to_active setting
+                # Note: Users with enable_at=None use global timing
                 to_enable.append(d.username)
         
         return to_enable
