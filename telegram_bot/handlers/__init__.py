@@ -62,6 +62,9 @@ from telegram_bot.handlers.settings import (
     ipinfo_token_handler,
     handle_disable_by_group_callback,
     handle_select_disabled_group_callback,
+    handle_user_sync_menu_callback,
+    handle_user_sync_interval_callback,
+    handle_user_sync_now_callback,
 )
 
 from telegram_bot.handlers.monitoring import (
@@ -175,6 +178,9 @@ __all__ = [
     "ipinfo_token_handler",
     "handle_disable_by_group_callback",
     "handle_select_disabled_group_callback",
+    "handle_user_sync_menu_callback",
+    "handle_user_sync_interval_callback",
+    "handle_user_sync_now_callback",
     # Monitoring handlers
     "monitoring_status",
     "monitoring_details",

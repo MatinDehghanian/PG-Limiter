@@ -37,7 +37,7 @@ try:
 except ImportError:
     REDIS_AVAILABLE = False
 
-VERSION = "0.6.1"
+VERSION = "0.6.5"
 
 # Main logger
 main_logger = get_logger("limiter.main")
@@ -148,6 +148,12 @@ async def main():
         main_logger.debug("  └─ Started: handle_cancel_all")
         tg.create_task(enable_dis_user(panel_data), name="enable_dis_user")
         main_logger.debug("  └─ Started: enable_dis_user")
+        
+        # Start user sync loop for filter caching
+        from utils.user_sync import run_user_sync_loop
+        tg.create_task(run_user_sync_loop(panel_data), name="user_sync")
+        main_logger.debug("  └─ Started: user_sync")
+        
         main_logger.info("✓ All background tasks started")
         
         main_logger.info("=" * 50)

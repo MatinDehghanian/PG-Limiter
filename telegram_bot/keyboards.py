@@ -46,7 +46,10 @@ def create_settings_menu_keyboard():
             InlineKeyboardButton("👤 Admin Filter", callback_data=CallbackData.ADMIN_FILTER_MENU),
         ],
         [
-            InlineKeyboardButton("🔙 Back", callback_data=CallbackData.BACK_MAIN),
+            InlineKeyboardButton("� User Sync", callback_data=CallbackData.USER_SYNC_MENU),
+        ],
+        [
+            InlineKeyboardButton("�🔙 Back", callback_data=CallbackData.BACK_MAIN),
         ],
     ]
     return InlineKeyboardMarkup(keyboard)

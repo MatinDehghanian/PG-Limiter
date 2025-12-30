@@ -78,7 +78,7 @@ def cache_user_groups(username: str, group_ids: list[int]):
 
 async def get_user_groups(panel_data, username: str) -> list[int]:
     """
-    Get the group IDs for a user, using cache when available.
+    Get the group IDs for a user, using database cache first, then memory cache, then API.
     
     Args:
         panel_data: Panel connection data
@@ -87,12 +87,21 @@ async def get_user_groups(panel_data, username: str) -> list[int]:
     Returns:
         List of group IDs the user belongs to
     """
-    # Check cache first
+    # Check database cache first (from user sync)
+    try:
+        from utils.user_sync import get_user_from_cache
+        cached_user = await get_user_from_cache(username)
+        if cached_user and cached_user.get("group_ids") is not None:
+            return cached_user["group_ids"]
+    except Exception:
+        pass  # Fall back to other methods
+    
+    # Check memory cache
     cached = get_cached_user_groups(username)
     if cached is not None:
         return cached
     
-    # Fetch from API
+    # Fetch from API as last resort
     try:
         from utils.panel_api import get_user_details
         
@@ -104,7 +113,7 @@ async def get_user_groups(panel_data, username: str) -> list[int]:
         if group_ids is None:
             group_ids = []
         
-        # Cache the result
+        # Cache the result in memory
         cache_user_groups(username, group_ids)
         
         return group_ids

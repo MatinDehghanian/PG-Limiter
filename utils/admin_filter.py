@@ -78,7 +78,7 @@ def cache_user_admin(username: str, admin_username: str):
 
 async def get_user_admin(panel_data, username: str) -> Optional[str]:
     """
-    Get the admin (owner) for a user, using cache when available.
+    Get the admin (owner) for a user, using database cache first, then memory cache, then API.
     
     Args:
         panel_data: Panel connection data
@@ -87,12 +87,21 @@ async def get_user_admin(panel_data, username: str) -> Optional[str]:
     Returns:
         Admin username or None if not found
     """
-    # Check cache first
+    # Check database cache first (from user sync)
+    try:
+        from utils.user_sync import get_user_from_cache
+        cached_user = await get_user_from_cache(username)
+        if cached_user and cached_user.get("owner_username"):
+            return cached_user["owner_username"]
+    except Exception:
+        pass  # Fall back to other methods
+    
+    # Check memory cache
     cached = get_cached_user_admin(username)
     if cached is not None:
         return cached
     
-    # Fetch from API
+    # Fetch from API as last resort
     try:
         from utils.panel_api import get_user_admin as api_get_user_admin
         

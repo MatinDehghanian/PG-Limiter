@@ -121,6 +121,9 @@ from telegram_bot.handlers.settings import (
     handle_ipinfo_token_input,
     handle_disable_by_group_callback,
     handle_select_disabled_group_callback,
+    handle_user_sync_menu_callback,
+    handle_user_sync_interval_callback,
+    handle_user_sync_now_callback,
 )
 from telegram_bot.handlers.monitoring import (
     monitoring_status,
@@ -544,6 +547,31 @@ async def callback_query_handler(update: Update, context: ContextTypes.DEFAULT_T
     if data.startswith("select_disabled_group:"):
         group_id = int(data.split(":")[1])
         await handle_select_disabled_group_callback(query, context, group_id)
+        return
+    
+    # User sync callbacks
+    if data == CallbackData.USER_SYNC_MENU:
+        await handle_user_sync_menu_callback(query, context)
+        return
+    
+    if data == CallbackData.USER_SYNC_1:
+        await handle_user_sync_interval_callback(query, context, 1)
+        return
+    
+    if data == CallbackData.USER_SYNC_5:
+        await handle_user_sync_interval_callback(query, context, 5)
+        return
+    
+    if data == CallbackData.USER_SYNC_10:
+        await handle_user_sync_interval_callback(query, context, 10)
+        return
+    
+    if data == CallbackData.USER_SYNC_15:
+        await handle_user_sync_interval_callback(query, context, 15)
+        return
+    
+    if data == CallbackData.USER_SYNC_NOW:
+        await handle_user_sync_now_callback(query, context)
         return
     
     # Back to settings callback

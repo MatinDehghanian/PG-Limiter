@@ -142,6 +142,14 @@ class CallbackData:
     ADMIN_FILTER_MODE_INCLUDE = "admin_filter_mode_include"
     ADMIN_FILTER_MODE_EXCLUDE = "admin_filter_mode_exclude"
     
+    # User sync settings
+    USER_SYNC_MENU = "user_sync_menu"
+    USER_SYNC_1 = "user_sync_1"
+    USER_SYNC_5 = "user_sync_5"
+    USER_SYNC_10 = "user_sync_10"
+    USER_SYNC_15 = "user_sync_15"
+    USER_SYNC_NOW = "user_sync_now"
+    
     # Cleanup
     CLEANUP_DELETED_USERS = "cleanup_deleted_users"
     

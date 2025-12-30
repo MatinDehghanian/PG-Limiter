@@ -698,3 +698,129 @@ async def handle_select_disabled_group_callback(query, _context: ContextTypes.DE
             ]),
             parse_mode="HTML"
         )
+
+
+def create_user_sync_keyboard(current_interval: int):
+    """Create keyboard for user sync interval settings."""
+    keyboard = []
+    
+    intervals = [
+        (1, "1 minute"),
+        (5, "5 minutes"),
+        (10, "10 minutes"),
+        (15, "15 minutes"),
+    ]
+    
+    for value, label in intervals:
+        prefix = "✅" if current_interval == value else "⬜"
+        callback = getattr(CallbackData, f"USER_SYNC_{value}")
+        keyboard.append([InlineKeyboardButton(f"{prefix} {label}", callback_data=callback)])
+    
+    keyboard.append([InlineKeyboardButton("🔄 Sync Now", callback_data=CallbackData.USER_SYNC_NOW)])
+    keyboard.append([InlineKeyboardButton("« Back to Settings", callback_data=CallbackData.SETTINGS_MENU)])
+    
+    return InlineKeyboardMarkup(keyboard)
+
+
+async def handle_user_sync_menu_callback(query, _context: ContextTypes.DEFAULT_TYPE):
+    """Handle callback for user sync menu."""
+    from telegram.error import BadRequest
+    
+    config_data = await read_config()
+    current_interval = config_data.get("user_sync_interval", 5)
+    
+    # Get last sync time
+    try:
+        from utils.user_sync import get_last_sync_time
+        last_sync = await get_last_sync_time()
+        if last_sync:
+            sync_status = f"Last sync: <code>{last_sync.strftime('%H:%M:%S')}</code>"
+        else:
+            sync_status = "Last sync: <i>Never</i>"
+    except Exception:
+        sync_status = "Last sync: <i>Unknown</i>"
+    
+    keyboard = create_user_sync_keyboard(current_interval)
+    
+    try:
+        await query.edit_message_text(
+            text=f"🔄 <b>User Sync Settings</b>\n\n"
+                 f"Periodically syncs user data from panel to local database\n"
+                 f"for faster group/admin filtering.\n\n"
+                 f"<b>Current interval:</b> {current_interval} minutes\n"
+                 f"{sync_status}\n\n"
+                 f"Select sync interval:",
+            reply_markup=keyboard,
+            parse_mode="HTML"
+        )
+    except BadRequest as e:
+        if "message is not modified" not in str(e).lower():
+            raise
+
+
+async def handle_user_sync_interval_callback(query, _context: ContextTypes.DEFAULT_TYPE, interval: int):
+    """Handle callback for setting user sync interval."""
+    from utils.read_config import invalidate_config_cache
+    
+    try:
+        await save_config_value("user_sync_interval", str(interval))
+        await invalidate_config_cache()
+        
+        # Refresh the menu
+        await handle_user_sync_menu_callback(query, _context)
+        
+    except Exception as e:
+        await query.edit_message_text(
+            text=f"❌ Error: {str(e)}",
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton("« Back", callback_data=CallbackData.USER_SYNC_MENU)]
+            ]),
+            parse_mode="HTML"
+        )
+
+
+async def handle_user_sync_now_callback(query, _context: ContextTypes.DEFAULT_TYPE):
+    """Handle callback for immediate user sync."""
+    try:
+        await query.edit_message_text(
+            text="🔄 <b>Syncing users from panel...</b>\n\n"
+                 "<i>This may take a moment...</i>",
+            parse_mode="HTML"
+        )
+        
+        # Perform sync
+        from utils.user_sync import sync_users_to_database
+        from utils.read_config import read_config
+        from utils.types import PanelType
+        
+        config_data = await read_config()
+        panel_config = config_data.get("panel", {})
+        panel_data = PanelType(
+            panel_config.get("username", ""),
+            panel_config.get("password", ""),
+            panel_config.get("domain", "")
+        )
+        
+        synced, errors = await sync_users_to_database(panel_data)
+        
+        await query.edit_message_text(
+            text=f"✅ <b>User Sync Complete</b>\n\n"
+                 f"Synced: <code>{synced}</code> users\n"
+                 f"Errors: <code>{errors}</code>\n\n"
+                 f"User data is now cached locally for faster filtering.",
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton("🔄 Sync Again", callback_data=CallbackData.USER_SYNC_NOW)],
+                [InlineKeyboardButton("« Back to Settings", callback_data=CallbackData.SETTINGS_MENU)]
+            ]),
+            parse_mode="HTML"
+        )
+        
+    except Exception as e:
+        await query.edit_message_text(
+            text=f"❌ Sync Error: {str(e)}",
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton("🔄 Retry", callback_data=CallbackData.USER_SYNC_NOW)],
+                [InlineKeyboardButton("« Back", callback_data=CallbackData.USER_SYNC_MENU)]
+            ]),
+            parse_mode="HTML"
+        )

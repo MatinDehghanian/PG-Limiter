@@ -107,6 +107,8 @@ def load_env_config() -> Dict[str, Any]:
         "check_interval": _get_env("CHECK_INTERVAL", 60, int),
         "time_to_active_users": _get_env("TIME_TO_ACTIVE_USERS", 900, int),
         "country_code": _get_env("COUNTRY_CODE", ""),
+        # User sync settings
+        "user_sync_interval": _get_env("USER_SYNC_INTERVAL", 5, int),  # Minutes
         # API settings (from ENV)
         "api": {
             "enabled": _get_env("API_ENABLED", False, bool),
@@ -256,6 +258,13 @@ async def read_config(check_required_elements: bool = False) -> Dict[str, Any]:
         config["admin_filter"]["admin_usernames"] = [
             x.strip() for x in admin_usernames_str.split(",") if x.strip()
         ]
+    
+    # User sync interval (in minutes)
+    if "user_sync_interval" in db_config:
+        try:
+            config["user_sync_interval"] = int(db_config["user_sync_interval"])
+        except (ValueError, TypeError):
+            pass
     
     # Validate required elements
     if check_required_elements:
