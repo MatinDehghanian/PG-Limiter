@@ -318,4 +318,3 @@ def create_general_limit_keyboard():
         [InlineKeyboardButton("« Back to Limits", callback_data=CallbackData.LIMITS_MENU)],
     ]
     return InlineKeyboardMarkup(keyboard)
-
