@@ -31,7 +31,7 @@ from utils.read_config import read_config
 def create_back_to_users_keyboard():
     """Create a simple back to users menu keyboard."""
     keyboard = [
-        [InlineKeyboardButton("« Back to Users", callback_data=CallbackData.USERS_MENU)],
+        [InlineKeyboardButton("« Back to Users", callback_data=CallbackData.BACK_USERS)],
         [InlineKeyboardButton("« Back to Main Menu", callback_data=CallbackData.MAIN_MENU)],
     ]
     return InlineKeyboardMarkup(keyboard)
@@ -104,7 +104,7 @@ def create_disabled_users_keyboard(disabled_users: dict, page: int = 0, per_page
         InlineKeyboardButton("🔄 Refresh", callback_data=CallbackData.SHOW_DISABLED_USERS),
     ])
     keyboard.append([
-        InlineKeyboardButton("« Back to Users", callback_data=CallbackData.USERS_MENU),
+        InlineKeyboardButton("« Back to Users", callback_data=CallbackData.BACK_USERS),
     ])
     
     return InlineKeyboardMarkup(keyboard)

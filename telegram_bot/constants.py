@@ -98,6 +98,8 @@ class CallbackData:
     SET_SPECIAL_LIMIT = "set_special_limit"
     SHOW_DISABLED_USERS = "show_disabled_users"
     ENABLE_ALL_DISABLED = "enable_all_disabled"
+    WHITELIST_MENU = "whitelist_menu"
+    BACK_USERS = "back_users"
     
     # Admin management
     ADD_ADMIN = "add_admin"

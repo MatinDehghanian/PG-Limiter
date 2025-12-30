@@ -56,6 +56,7 @@ from telegram_bot.keyboards import (
     create_admin_menu_keyboard,
     create_back_to_main_keyboard,
     create_disable_method_keyboard,
+    create_whitelist_menu_keyboard,
 )
 
 # Import handlers
@@ -81,6 +82,7 @@ from telegram_bot.handlers.limits import (
     handle_general_limit_input,
     handle_special_limit_username_input,
     handle_special_limit_number_input,
+    handle_show_special_limit_callback,
 )
 from telegram_bot.handlers.users import (
     set_except_users,
@@ -399,6 +401,24 @@ async def callback_query_handler(update: Update, context: ContextTypes.DEFAULT_T
         return
     
     # User management callbacks
+    if data == CallbackData.WHITELIST_MENU:
+        await query.edit_message_text(
+            text="✅ <b>Whitelist (Except Users)</b>\n\n"
+                 "Users in the whitelist are excluded from IP limits.\n"
+                 "They can have unlimited connections.",
+            reply_markup=create_whitelist_menu_keyboard(),
+            parse_mode="HTML"
+        )
+        return
+    
+    if data == CallbackData.BACK_USERS:
+        await query.edit_message_text(
+            text="👥 <b>Users Menu</b>\n\nManage users and view disabled accounts:",
+            reply_markup=create_users_menu_keyboard(),
+            parse_mode="HTML"
+        )
+        return
+    
     if data == CallbackData.SHOW_EXCEPT_USERS:
         await show_except_users(update, context)
         return
@@ -424,17 +444,11 @@ async def callback_query_handler(update: Update, context: ContextTypes.DEFAULT_T
         return
     
     if data == CallbackData.SHOW_SPECIAL_LIMIT:
-        await show_special_limit_function(update, context)
+        await handle_show_special_limit_callback(query, context)
         return
     
     if data == CallbackData.SET_SPECIAL_LIMIT:
-        await query.edit_message_text(
-            text="🎯 <b>Set Special Limit</b>\n\n"
-                 "Use the command:\n"
-                 "<code>/set_special_limit username limit</code>",
-            reply_markup=create_back_to_main_keyboard(),
-            parse_mode="HTML"
-        )
+        await handle_set_special_limit_callback(query, context)
         return
     
     # Monitoring callbacks

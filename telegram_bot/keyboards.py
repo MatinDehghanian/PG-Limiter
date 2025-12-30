@@ -64,15 +64,9 @@ def create_limits_menu_keyboard():
     keyboard = [
         [
             InlineKeyboardButton("🎯 Set Special Limit", callback_data=CallbackData.SET_SPECIAL_LIMIT),
+        ],
+        [
             InlineKeyboardButton("📋 Show Special Limits", callback_data=CallbackData.SHOW_SPECIAL_LIMIT),
-        ],
-        [
-            InlineKeyboardButton("🔢 General Limit: 2", callback_data=CallbackData.GENERAL_LIMIT_2),
-            InlineKeyboardButton("🔢 General Limit: 3", callback_data=CallbackData.GENERAL_LIMIT_3),
-        ],
-        [
-            InlineKeyboardButton("🔢 General Limit: 4", callback_data=CallbackData.GENERAL_LIMIT_4),
-            InlineKeyboardButton("✏️ Custom", callback_data=CallbackData.GENERAL_LIMIT_CUSTOM),
         ],
         [
             InlineKeyboardButton("🔙 Back", callback_data=CallbackData.BACK_MAIN),
@@ -85,21 +79,33 @@ def create_users_menu_keyboard():
     """Create the users menu inline keyboard."""
     keyboard = [
         [
-            InlineKeyboardButton("📋 Show Except Users", callback_data=CallbackData.SHOW_EXCEPT_USERS),
-            InlineKeyboardButton("➕ Add Except User", callback_data=CallbackData.SET_EXCEPT_USER),
-        ],
-        [
-            InlineKeyboardButton("➖ Remove Except User", callback_data=CallbackData.REMOVE_EXCEPT_USER),
+            InlineKeyboardButton("✅ Whitelist (Except Users)", callback_data=CallbackData.WHITELIST_MENU),
         ],
         [
             InlineKeyboardButton("🚫 Disabled Users", callback_data=CallbackData.SHOW_DISABLED_USERS),
-            InlineKeyboardButton("✅ Enable All", callback_data=CallbackData.ENABLE_ALL_DISABLED),
         ],
         [
-            InlineKeyboardButton("🧹 Cleanup Deleted", callback_data=CallbackData.CLEANUP_DELETED_USERS),
+            InlineKeyboardButton("🧹 Cleanup Deleted Users", callback_data=CallbackData.CLEANUP_DELETED_USERS),
         ],
         [
             InlineKeyboardButton("🔙 Back", callback_data=CallbackData.BACK_MAIN),
+        ],
+    ]
+    return InlineKeyboardMarkup(keyboard)
+
+
+def create_whitelist_menu_keyboard():
+    """Create the whitelist (except users) submenu keyboard."""
+    keyboard = [
+        [
+            InlineKeyboardButton("📋 Show Whitelist", callback_data=CallbackData.SHOW_EXCEPT_USERS),
+        ],
+        [
+            InlineKeyboardButton("➕ Add User", callback_data=CallbackData.SET_EXCEPT_USER),
+            InlineKeyboardButton("➖ Remove User", callback_data=CallbackData.REMOVE_EXCEPT_USER),
+        ],
+        [
+            InlineKeyboardButton("🔙 Back to Users", callback_data=CallbackData.BACK_USERS),
         ],
     ]
     return InlineKeyboardMarkup(keyboard)
