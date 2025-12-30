@@ -1,6 +1,6 @@
 #!/bin/bash
 
-VERSION="0.5.2"
+VERSION="0.5.3"
 
 # Colors for output
 RED='\033[0;31m'
@@ -46,14 +46,17 @@ echo "    Admin IDs: $ADMIN_IDS"
 
 # Initialize database
 echo "Initializing database..."
-if python -c "
+python -c "
 import asyncio
 from db import init_db
 asyncio.run(init_db())
-" 2>&1; then
+print('DB_INIT_DONE')
+" 2>&1
+DB_EXIT=$?
+if [ $DB_EXIT -eq 0 ]; then
     log_info "Database initialized"
 else
-    log_error "Database initialization failed"
+    log_error "Database initialization failed (exit code: $DB_EXIT)"
     exit 1
 fi
 
@@ -88,15 +91,20 @@ fi
 
 # Verify Python can import all required modules
 echo "Verifying modules..."
-if python -c "
+python -c "
+print('  Importing telegram_bot.main...')
 from telegram_bot.main import application
+print('  Importing utils.read_config...')
 from utils.read_config import read_config
+print('  Importing db...')
 from db import get_db
-print('All modules loaded successfully')
-" 2>&1; then
+print('  All modules loaded successfully')
+" 2>&1
+MODULE_EXIT=$?
+if [ $MODULE_EXIT -eq 0 ]; then
     log_info "All modules verified"
 else
-    log_error "Module verification failed"
+    log_error "Module verification failed (exit code: $MODULE_EXIT)"
     exit 1
 fi
 

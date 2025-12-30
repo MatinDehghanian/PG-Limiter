@@ -2,7 +2,7 @@
   <img src="https://img.shields.io/badge/Python-3.10+-blue?logo=python&logoColor=white" alt="Python">
   <img src="https://img.shields.io/badge/License-AGPL--3.0-green" alt="License">
   <img src="https://img.shields.io/badge/Platform-Linux%20%7C%20macOS-lightgrey" alt="Platform">
-  <img src="https://img.shields.io/badge/Version-0.5.2-orange" alt="Version">
+  <img src="https://img.shields.io/badge/Version-0.5.3-orange" alt="Version">
 </p>
 
 <h1 align="center">🛡️ PG-Limiter</h1>
@@ -483,7 +483,7 @@ Moves user to a restricted group instead:
 
 ## 🚀 Redis Caching
 
-PG-Limiter v0.5.2+ includes Redis caching for improved performance and persistence.
+PG-Limiter v0.5.3+ includes Redis caching for improved performance and persistence.
 
 ### Benefits
 
