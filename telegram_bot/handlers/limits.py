@@ -157,7 +157,11 @@ async def handle_set_special_limit_callback(query, context: ContextTypes.DEFAULT
     """Handle callback for initiating special limit setting."""
     context.user_data["waiting_for"] = "special_limit_username"
     await query.edit_message_text(
-        text="🎯 <b>Set Special Limit</b>\n\nSend the username (e.g., <code>Test_User</code>):",
+        text="🎯 <b>Set Special Limit</b>\n\nSend the username (e.g., <code>Test_User</code>):\n\n"
+             "<i>Or click Back to cancel.</i>",
+        reply_markup=InlineKeyboardMarkup([
+            [InlineKeyboardButton("« Back to Limits", callback_data=CallbackData.LIMITS_MENU)]
+        ]),
         parse_mode="HTML"
     )
 
@@ -199,7 +203,11 @@ async def handle_special_limit_custom_callback(query, context: ContextTypes.DEFA
     context.user_data["waiting_for"] = "special_limit_number"
     await query.edit_message_text(
         text=f"🎯 <b>Custom Limit for {context.user_data.get('selected_user', 'user')}</b>\n\n"
-             + "Send the limit number (e.g., <code>5</code>):",
+             + "Send the limit number (e.g., <code>5</code>):\n\n"
+             + "<i>Or click Back to cancel.</i>",
+        reply_markup=InlineKeyboardMarkup([
+            [InlineKeyboardButton("« Back to Limits", callback_data=CallbackData.LIMITS_MENU)]
+        ]),
         parse_mode="HTML"
     )
 

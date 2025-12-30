@@ -501,7 +501,9 @@ async def handle_ipinfo_callback(query, context: ContextTypes.DEFAULT_TYPE):
         text="🔑 <b>IPInfo Token</b>\n\n"
              + "Send your ipinfo.io API token:\n\n"
              + "Get one at: https://ipinfo.io\n\n"
-             + "Or send <code>remove</code> to remove the token",
+             + "Or send <code>remove</code> to remove the token\n\n"
+             + "<i>Or click Back to cancel.</i>",
+        reply_markup=create_back_to_main_keyboard(),
         parse_mode="HTML"
     )
 

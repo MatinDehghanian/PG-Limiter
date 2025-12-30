@@ -64,6 +64,10 @@ from telegram_bot.handlers.admin import (
     get_chat_id,
     get_chat_id_to_remove,
     remove_admin,
+    handle_admins_list_callback,
+    handle_admins_page_callback,
+    handle_admin_info_callback,
+    handle_delete_admin_callback,
 )
 from telegram_bot.handlers.limits import (
     set_special_limit,
@@ -373,7 +377,7 @@ async def callback_query_handler(update: Update, context: ContextTypes.DEFAULT_T
     
     # Admin management callbacks
     if data == CallbackData.LIST_ADMINS:
-        admins_list_result = await admins_list(update, context)
+        await handle_admins_list_callback(query, context)
         return
     
     if data == CallbackData.ADD_ADMIN:
@@ -382,7 +386,10 @@ async def callback_query_handler(update: Update, context: ContextTypes.DEFAULT_T
                  "Use the command:\n"
                  "<code>/add_admin</code>\n\n"
                  "Then send the chat ID of the user to add.",
-            reply_markup=create_back_to_main_keyboard(),
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton("« Back to Admins", callback_data=CallbackData.LIST_ADMINS)],
+                [InlineKeyboardButton("« Back to Main Menu", callback_data=CallbackData.MAIN_MENU)],
+            ]),
             parse_mode="HTML"
         )
         return
@@ -393,7 +400,10 @@ async def callback_query_handler(update: Update, context: ContextTypes.DEFAULT_T
                  "Use the command:\n"
                  "<code>/remove_admin</code>\n\n"
                  "Then send the chat ID of the admin to remove.",
-            reply_markup=create_back_to_main_keyboard(),
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton("« Back to Admins", callback_data=CallbackData.LIST_ADMINS)],
+                [InlineKeyboardButton("« Back to Main Menu", callback_data=CallbackData.MAIN_MENU)],
+            ]),
             parse_mode="HTML"
         )
         return
@@ -621,6 +631,24 @@ async def callback_query_handler(update: Update, context: ContextTypes.DEFAULT_T
     if data.startswith("delete_whitelist:"):
         username = data.split(":", 1)[1]
         await handle_delete_whitelist_callback(query, context, username)
+        return
+    
+    # Handle admins pagination
+    if data.startswith("admins_page:"):
+        page = int(data.split(":", 1)[1])
+        await handle_admins_page_callback(query, context, page)
+        return
+    
+    # Handle admin info callback
+    if data.startswith("admin_info:"):
+        admin_id = data.split(":", 1)[1]
+        await handle_admin_info_callback(query, context, admin_id)
+        return
+    
+    # Handle delete admin callback
+    if data.startswith("delete_admin:"):
+        admin_id = data.split(":", 1)[1]
+        await handle_delete_admin_callback(query, context, admin_id)
         return
     
     # Handle add_except:username callback (from notification buttons)

@@ -10,6 +10,10 @@ from telegram_bot.handlers.admin import (
     get_chat_id,
     get_chat_id_to_remove,
     remove_admin,
+    handle_admins_list_callback,
+    handle_admins_page_callback,
+    handle_admin_info_callback,
+    handle_delete_admin_callback,
 )
 
 from telegram_bot.handlers.limits import (
@@ -115,6 +119,10 @@ __all__ = [
     "get_chat_id",
     "get_chat_id_to_remove",
     "remove_admin",
+    "handle_admins_list_callback",
+    "handle_admins_page_callback",
+    "handle_admin_info_callback",
+    "handle_delete_admin_callback",
     # Limits handlers
     "set_special_limit",
     "get_special_limit",

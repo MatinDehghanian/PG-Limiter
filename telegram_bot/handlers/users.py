@@ -599,7 +599,11 @@ async def handle_add_except_user_callback(query, context: ContextTypes.DEFAULT_T
     await query.edit_message_text(
         text="➕ <b>Add User to Whitelist</b>\n\n"
              "Send the username to add to the whitelist:\n\n"
-             "<i>Example: <code>john_doe</code></i>",
+             "<i>Example: <code>john_doe</code></i>\n\n"
+             "<i>Or click Back to cancel.</i>",
+        reply_markup=InlineKeyboardMarkup([
+            [InlineKeyboardButton("« Back to Whitelist", callback_data=CallbackData.SHOW_EXCEPT_USERS)]
+        ]),
         parse_mode="HTML"
     )
 
@@ -610,7 +614,11 @@ async def handle_remove_except_user_callback(query, context: ContextTypes.DEFAUL
     await query.edit_message_text(
         text="➖ <b>Remove User from Whitelist</b>\n\n"
              "Send the username to remove from the whitelist:\n\n"
-             "<i>Example: <code>john_doe</code></i>",
+             "<i>Example: <code>john_doe</code></i>\n\n"
+             "<i>Or click Back to cancel.</i>",
+        reply_markup=InlineKeyboardMarkup([
+            [InlineKeyboardButton("« Back to Whitelist", callback_data=CallbackData.SHOW_EXCEPT_USERS)]
+        ]),
         parse_mode="HTML"
     )
 
