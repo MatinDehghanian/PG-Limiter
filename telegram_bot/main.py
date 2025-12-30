@@ -659,6 +659,18 @@ async def callback_query_handler(update: Update, context: ContextTypes.DEFAULT_T
                 )
         return
     
+    # Handle custom_limit:username callback (from notification buttons)
+    if data.startswith("custom_limit:"):
+        username = data.split(":", 1)[1]
+        context.user_data["selected_user"] = username
+        context.user_data["waiting_for"] = "notification_custom_limit"
+        await query.edit_message_text(
+            text=f"🎯 <b>Set Custom Limit for: {username}</b>\n\n"
+                 "Send the device limit number (e.g., <code>3</code>):",
+            parse_mode="HTML"
+        )
+        return
+    
     # General limit preset callbacks
     if data == CallbackData.GENERAL_LIMIT_2:
         await handle_general_limit_preset_callback(query, context, 2)
@@ -718,6 +730,33 @@ async def text_message_handler(update: Update, context: ContextTypes.DEFAULT_TYP
     
     if waiting_for == "ipinfo_token":
         await handle_ipinfo_token_input(update, context)
+        return
+    
+    # Handle notification custom limit input
+    if waiting_for == "notification_custom_limit":
+        username = context.user_data.get("selected_user")
+        if username:
+            text = update.message.text.strip()
+            try:
+                limit = int(text)
+                result = await handel_special_limit(username, limit)
+                if result:
+                    await update.message.reply_html(
+                        text=f"✅ Special limit <b>{limit}</b> set for <code>{username}</code>!",
+                        reply_markup=create_back_to_main_keyboard()
+                    )
+                else:
+                    await update.message.reply_html(
+                        text=f"⚠️ Failed to set special limit for <code>{username}</code>.",
+                        reply_markup=create_back_to_main_keyboard()
+                    )
+            except ValueError:
+                await update.message.reply_html(
+                    text="❌ Invalid number. Please send a valid number.",
+                    reply_markup=create_back_to_main_keyboard()
+                )
+            context.user_data.pop("selected_user", None)
+        context.user_data["waiting_for"] = None
         return
     
     # Reset if no handler found

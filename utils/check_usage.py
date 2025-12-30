@@ -392,7 +392,7 @@ async def check_ip_used() -> dict:
             
             try:
                 # Send with inline buttons (has_special_limit=False, is_except=False)
-                await send_user_message(action_message, email, device_count, False, False)
+                await send_user_message(action_message, email, device_count, False, False, general_limit)
                 await asyncio.sleep(0.5)
             except Exception as e:
                 logger.error(f"Failed to send action message for user {email}: {e}")

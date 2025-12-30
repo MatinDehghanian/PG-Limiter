@@ -105,7 +105,7 @@ async def send_disable_notification(msg: str, username: str):
     await send_logs(msg, reply_markup=reply_markup)
 
 
-async def send_user_message(msg: str, username: str, device_count: int, has_special_limit: bool, is_except: bool):
+async def send_user_message(msg: str, username: str, device_count: int, has_special_limit: bool, is_except: bool, general_limit: int = 2):
     """
     Send a message for a single user with inline buttons for setting limits.
     Only shows buttons if user doesn't have special limit and is not in except list.
@@ -116,6 +116,7 @@ async def send_user_message(msg: str, username: str, device_count: int, has_spec
         device_count: Number of devices the user has
         has_special_limit: Whether user already has a special limit set
         is_except: Whether user is in except list
+        general_limit: The current general limit value
     """
     from telegram import InlineKeyboardButton, InlineKeyboardMarkup
     from telegram_bot.main import application
@@ -131,6 +132,13 @@ async def send_user_message(msg: str, username: str, device_count: int, has_spec
             [
                 InlineKeyboardButton(f"📱 Set {device_count} limit", callback_data=f"set_limit:{username}:{device_count}"),
                 InlineKeyboardButton("🚫 Add to except", callback_data=f"add_except:{username}"),
+            ],
+            [
+                InlineKeyboardButton("1️⃣ Set 1 device", callback_data=f"set_limit:{username}:1"),
+                InlineKeyboardButton(f"🔢 Set {general_limit} (general)", callback_data=f"set_limit:{username}:{general_limit}"),
+            ],
+            [
+                InlineKeyboardButton("✏️ Custom limit", callback_data=f"custom_limit:{username}"),
             ]
         ]
         reply_markup = InlineKeyboardMarkup(keyboard)
