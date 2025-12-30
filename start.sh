@@ -45,7 +45,7 @@ print('✓ Database initialized')
 
 # Run database migrations
 echo "Running database migrations..."
-python -m alembic upgrade head 2>/dev/null || echo "⚠ Migrations not applied (may already be up to date)"
+python -m alembic upgrade head 2>&1 || echo "⚠ Migrations not applied (may already be up to date)"
 
 # Migrate from JSON to database if old JSON files exist
 if [ -f "/app/.disable_users.json" ] || [ -f "/app/.violation_history.json" ]; then
@@ -64,4 +64,6 @@ fi
 
 echo "✓ PG-Limiter initialized"
 echo "Starting limiter..."
-exec python limiter.py
+echo "Bot Token: ${BOT_TOKEN:0:10}..."
+echo "Admin IDs: $ADMIN_IDS"
+exec python -u limiter.py

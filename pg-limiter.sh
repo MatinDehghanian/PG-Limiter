@@ -494,7 +494,10 @@ cmd_restart() {
     fi
     
     colorized_echo blue "Restarting PG-Limiter..."
-    $COMPOSE -f "$COMPOSE_FILE" restart
+    # Stop, clear logs, and start fresh
+    $COMPOSE -f "$COMPOSE_FILE" down
+    # Clear container logs by recreating
+    $COMPOSE -f "$COMPOSE_FILE" up -d
     
     colorized_echo green "✓ PG-Limiter restarted!"
 }
@@ -562,9 +565,9 @@ cmd_update() {
     colorized_echo blue "Pulling latest Docker image..."
     docker pull "$DOCKER_IMAGE"
     
-    # Restart with new image
+    # Restart with new image (removes old container to clear logs)
     colorized_echo blue "Restarting service..."
-    $COMPOSE -f "$COMPOSE_FILE" down
+    $COMPOSE -f "$COMPOSE_FILE" down --remove-orphans
     $COMPOSE -f "$COMPOSE_FILE" up -d
     
     colorized_echo green "✓ PG-Limiter updated successfully!"
