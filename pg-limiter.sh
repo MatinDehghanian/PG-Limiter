@@ -314,6 +314,14 @@ configure_interactive() {
     read -p "Default IP limit per user [2]: " general_limit
     general_limit=${general_limit:-2}
     
+    # Check interval
+    read -p "Check interval in seconds [60]: " check_interval
+    check_interval=${check_interval:-60}
+    
+    # Time to active users
+    read -p "Time to consider user active in seconds [900]: " time_to_active
+    time_to_active=${time_to_active:-900}
+    
     # Country code
     read -p "Country code filter (IR/RU/CN or empty for all) []: " country_code
     
@@ -328,6 +336,8 @@ configure_interactive() {
     replace_or_append_env_var "BOT_TOKEN" "$bot_token"
     replace_or_append_env_var "ADMIN_IDS" "$admin_ids"
     replace_or_append_env_var "GENERAL_LIMIT" "$general_limit"
+    replace_or_append_env_var "CHECK_INTERVAL" "$check_interval"
+    replace_or_append_env_var "TIME_TO_ACTIVE_USERS" "$time_to_active"
     replace_or_append_env_var "COUNTRY_CODE" "$country_code"
     replace_or_append_env_var "TZ" "$timezone"
     
