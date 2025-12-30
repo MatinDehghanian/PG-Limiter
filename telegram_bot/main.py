@@ -323,6 +323,179 @@ async def callback_query_handler(update: Update, context: ContextTypes.DEFAULT_T
         await cleanup_deleted_users_handler(query)
         return
     
+    # Backup/Restore callbacks
+    if data == CallbackData.BACKUP:
+        # Create a fake update with the query.message to use send_backup
+        class FakeUpdate:
+            def __init__(self, message, effective_user, effective_chat):
+                self.message = message
+                self.effective_user = effective_user
+                self.effective_chat = effective_chat
+        
+        fake_update = FakeUpdate(query.message, update.effective_user, update.effective_chat)
+        await query.message.reply_text("📦 Creating backup... Please wait.")
+        await send_backup(fake_update, context)
+        return
+    
+    if data == CallbackData.RESTORE:
+        await query.edit_message_text(
+            text="📥 <b>Restore from Backup</b>\n\n"
+                 "Please send your backup file (zip or json format).\n\n"
+                 "<b>⚠️ Warning:</b> This will replace your current data!\n\n"
+                 "Use /restore command to upload your backup file.",
+            reply_markup=create_back_to_main_keyboard(),
+            parse_mode="HTML"
+        )
+        return
+    
+    # Admin management callbacks
+    if data == CallbackData.LIST_ADMINS:
+        admins_list_result = await admins_list(update, context)
+        return
+    
+    if data == CallbackData.ADD_ADMIN:
+        await query.edit_message_text(
+            text="👤 <b>Add Admin</b>\n\n"
+                 "Use the command:\n"
+                 "<code>/add_admin</code>\n\n"
+                 "Then send the chat ID of the user to add.",
+            reply_markup=create_back_to_main_keyboard(),
+            parse_mode="HTML"
+        )
+        return
+    
+    if data == CallbackData.REMOVE_ADMIN:
+        await query.edit_message_text(
+            text="🗑 <b>Remove Admin</b>\n\n"
+                 "Use the command:\n"
+                 "<code>/remove_admin</code>\n\n"
+                 "Then send the chat ID of the admin to remove.",
+            reply_markup=create_back_to_main_keyboard(),
+            parse_mode="HTML"
+        )
+        return
+    
+    # User management callbacks
+    if data == CallbackData.SHOW_EXCEPT_USERS:
+        await show_except_users(update, context)
+        return
+    
+    if data == CallbackData.SET_EXCEPT_USER:
+        await query.edit_message_text(
+            text="👤 <b>Add Except User</b>\n\n"
+                 "Use the command:\n"
+                 "<code>/set_except_user username</code>",
+            reply_markup=create_back_to_main_keyboard(),
+            parse_mode="HTML"
+        )
+        return
+    
+    if data == CallbackData.REMOVE_EXCEPT_USER:
+        await query.edit_message_text(
+            text="🗑 <b>Remove Except User</b>\n\n"
+                 "Use the command:\n"
+                 "<code>/remove_except_user username</code>",
+            reply_markup=create_back_to_main_keyboard(),
+            parse_mode="HTML"
+        )
+        return
+    
+    if data == CallbackData.SHOW_SPECIAL_LIMIT:
+        await show_special_limit_function(update, context)
+        return
+    
+    if data == CallbackData.SET_SPECIAL_LIMIT:
+        await query.edit_message_text(
+            text="🎯 <b>Set Special Limit</b>\n\n"
+                 "Use the command:\n"
+                 "<code>/set_special_limit username limit</code>",
+            reply_markup=create_back_to_main_keyboard(),
+            parse_mode="HTML"
+        )
+        return
+    
+    # Monitoring callbacks
+    if data == CallbackData.MONITORING_STATUS:
+        await monitoring_status(update, context)
+        return
+    
+    if data == CallbackData.MONITORING_DETAILS:
+        await monitoring_details(update, context)
+        return
+    
+    if data == CallbackData.MONITORING_CLEAR:
+        await clear_monitoring(update, context)
+        return
+    
+    # Reports callbacks
+    if data == CallbackData.REPORT_CONNECTION:
+        await connection_report_command(update, context)
+        return
+    
+    if data == CallbackData.REPORT_NODE_USAGE:
+        await node_usage_report_command(update, context)
+        return
+    
+    if data == CallbackData.REPORT_MULTI_DEVICE:
+        await multi_device_users_command(update, context)
+        return
+    
+    if data == CallbackData.REPORT_IP_12H:
+        await ip_history_12h_command(update, context)
+        return
+    
+    if data == CallbackData.REPORT_IP_48H:
+        await ip_history_48h_command(update, context)
+        return
+    
+    # Settings callbacks
+    if data == CallbackData.CREATE_CONFIG:
+        await query.edit_message_text(
+            text="⚙️ <b>Create Config</b>\n\n"
+                 "Use the command:\n"
+                 "<code>/create_config</code>",
+            reply_markup=create_back_to_main_keyboard(),
+            parse_mode="HTML"
+        )
+        return
+    
+    if data == CallbackData.SET_IPINFO:
+        await query.edit_message_text(
+            text="🔑 <b>Set IPInfo Token</b>\n\n"
+                 "Use the command:\n"
+                 "<code>/set_ipinfo_token YOUR_TOKEN</code>",
+            reply_markup=create_back_to_main_keyboard(),
+            parse_mode="HTML"
+        )
+        return
+    
+    # Punishment callbacks
+    if data == CallbackData.PUNISHMENT_MENU:
+        await punishment_status(update, context)
+        return
+    
+    if data == CallbackData.PUNISHMENT_TOGGLE:
+        await punishment_toggle(update, context)
+        return
+    
+    # Group filter callbacks
+    if data == CallbackData.GROUP_FILTER_MENU:
+        await group_filter_status(update, context)
+        return
+    
+    if data == CallbackData.GROUP_FILTER_TOGGLE:
+        await group_filter_toggle(update, context)
+        return
+    
+    # Admin filter callbacks
+    if data == CallbackData.ADMIN_FILTER_MENU:
+        await admin_filter_status(update, context)
+        return
+    
+    if data == CallbackData.ADMIN_FILTER_TOGGLE:
+        await admin_filter_toggle(update, context)
+        return
+    
     # Handle dynamic callbacks
     if data.startswith("enable_user:"):
         username = data.split(":", 1)[1]
