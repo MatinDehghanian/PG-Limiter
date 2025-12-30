@@ -1,124 +1,106 @@
-name: Build and Release Limiter
+name: Release PG-Limiter
 
 on:
   push:
-    branches: [ main, master ]
     tags: [ 'v*' ]
-  pull_request:
-    branches: [ main, master ]
   workflow_dispatch:
 
 jobs:
-  build:
-    # Use Ubuntu 22.04 for GLIBC 2.35 compatibility with older systems
-    # ubuntu-latest (24.04) has GLIBC 2.39 which breaks on Ubuntu 22.04 and older
-    runs-on: ubuntu-22.04
-    strategy:
-      matrix:
-        architecture: [x86_64, aarch64]
-    
-    steps:
-    - uses: actions/checkout@v4
-    
-    - name: Set up Python
-      uses: actions/setup-python@v4
-      with:
-        python-version: '3.11'
-    
-    - name: Set up QEMU (for cross-compilation)
-      if: matrix.architecture == 'aarch64'
-      uses: docker/setup-qemu-action@v3
-      with:
-        platforms: arm64
-    
-    - name: Install dependencies
-      run: |
-        python -m pip install --upgrade pip
-        pip install -r requirements.txt
-        pip install pyinstaller
-    
-    - name: Build binary for x86_64
-      if: matrix.architecture == 'x86_64'
-      run: |
-        pyinstaller limiter.spec
-        mv dist/limiter dist/limiter_amd64
-    
-    - name: Build binary for aarch64 (ARM64)
-      if: matrix.architecture == 'aarch64'
-      run: |
-        # Use Docker for cross-compilation
-        docker run --rm --platform linux/arm64 -v $PWD:/workspace -w /workspace python:3.11-slim bash -c "
-          apt-get update && apt-get install -y gcc &&
-          pip install --upgrade pip &&
-          pip install -r requirements.txt &&
-          pip install pyinstaller &&
-          pyinstaller limiter.spec &&
-          mv dist/limiter dist/limiter_arm64
-        "
-    
-    - name: Upload artifact
-      uses: actions/upload-artifact@v4
-      with:
-        name: limiter-${{ matrix.architecture }}
-        path: dist/limiter_*
-        retention-days: 1
-
   release:
-    needs: build
     runs-on: ubuntu-latest
-    if: github.event_name == 'push' && (startsWith(github.ref, 'refs/tags/v') || github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master')
     
     steps:
     - uses: actions/checkout@v4
     
-    - name: Download all artifacts
-      uses: actions/download-artifact@v4
-      with:
-        path: ./artifacts
-    
-    - name: Prepare release files
-      run: |
-        mkdir -p release
-        cp artifacts/limiter-x86_64/limiter_amd64 release/
-        cp artifacts/limiter-aarch64/limiter_arm64 release/
-        # Create a symlink for the default limiter.bin (x86_64)
-        ln -sf limiter_amd64 release/limiter.bin
-        chmod +x release/*
-    
-    - name: Get version from Python file or generate timestamp
+    - name: Get version from tag or Python file
       id: get_version
       run: |
-        if grep -q "VERSION\s*=" limiter.py; then
-          VERSION=$(python -c "import re; content=open('limiter.py').read(); match=re.search(r'VERSION\s*=\s*[\"\'](.*?)[\"\']', content); print(match.group(1) if match else 'latest')")
+        if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
+          VERSION="${GITHUB_REF#refs/tags/v}"
+        elif grep -q "VERSION\s*=" limiter.py; then
+          VERSION=$(python3 -c "import re; content=open('limiter.py').read(); match=re.search(r'VERSION\s*=\s*[\"\'](.*?)[\"\']', content); print(match.group(1) if match else 'latest')")
         else
-          VERSION="latest-$(date +'%Y%m%d-%H%M%S')"
+          VERSION="latest"
         fi
         echo "version=$VERSION" >> $GITHUB_OUTPUT
         echo "tag=v$VERSION" >> $GITHUB_OUTPUT
+        echo "Version: $VERSION"
+    
+    - name: Create source archive
+      run: |
+        mkdir -p release
+        # Create tar.gz archive (excluding git and unnecessary files)
+        tar --exclude='.git' \
+            --exclude='__pycache__' \
+            --exclude='*.pyc' \
+            --exclude='.env' \
+            --exclude='*.bak' \
+            --exclude='data/' \
+            --exclude='logs/' \
+            --exclude='dist/' \
+            --exclude='build/' \
+            --exclude='*.egg-info' \
+            -czvf release/pg-limiter-${{ steps.get_version.outputs.version }}.tar.gz .
+        
+        # Create zip archive
+        zip -r release/pg-limiter-${{ steps.get_version.outputs.version }}.zip . \
+            -x ".git/*" \
+            -x "__pycache__/*" \
+            -x "*.pyc" \
+            -x ".env" \
+            -x "*.bak" \
+            -x "data/*" \
+            -x "logs/*" \
+            -x "dist/*" \
+            -x "build/*" \
+            -x "*.egg-info/*"
     
     - name: Create/Update Release
       uses: softprops/action-gh-release@v1
       with:
         tag_name: ${{ steps.get_version.outputs.tag }}
-        name: "Release ${{ steps.get_version.outputs.version }}"
+        name: "PG-Limiter ${{ steps.get_version.outputs.version }}"
         body: |
-          ## Limiter ${{ steps.get_version.outputs.version }}
+          ## 🛡️ PG-Limiter ${{ steps.get_version.outputs.version }}
           
-          ### Download Instructions:
-          - **For x86_64 (AMD64) systems**: Download `limiter_amd64` or `limiter.bin`
-          - **For ARM64 (aarch64) systems**: Download `limiter_arm64`
+          Advanced IP Connection Limiter for PasarGuard Panel with Redis caching, Telegram bot control, and modular architecture.
           
-          ### Changes in this release:
-          - Auto-generated release from commit ${{ github.sha }}
+          ### 🚀 Quick Install (Docker - Recommended)
           
-          ### Installation:
-          1. Download the appropriate binary for your architecture
-          2. Make it executable: `chmod +x limiter_*`
-          3. Run it: `./limiter_amd64` or `./limiter_arm64`
+          ```bash
+          sudo bash <(curl -sSL https://raw.githubusercontent.com/MatinDehghanian/PG-Limiter/main/pg-limiter.sh) install
+          ```
+          
+          ### 📦 Manual Installation
+          
+          1. Download and extract the source code
+          2. Install dependencies: `pip install -r requirements.txt`
+          3. Configure `.env` file
+          4. Run: `python3 limiter.py`
+          
+          ### 🐳 Docker
+          
+          The Docker image is automatically built and available at:
+          ```
+          ghcr.io/matindehghanian/pg-limiter:latest
+          ```
+          
+          ### ✨ Features
+          
+          - 🔒 IP Limiting (global or per-user)
+          - 🚀 Redis Caching (with in-memory fallback)
+          - 🤖 Telegram Bot Control
+          - 🌐 REST API
+          - 📊 Real-time Monitoring
+          - ⚖️ Punishment System
+          - 📝 Enhanced Logging
+          
+          ### 📄 Changelog
+          
+          See [CHANGELOG.md](https://github.com/MatinDehghanian/PG-Limiter/blob/main/CHANGELOG.md) for details.
         files: |
-          release/limiter.bin
-          release/limiter_amd64
-          release/limiter_arm64
+          release/pg-limiter-${{ steps.get_version.outputs.version }}.tar.gz
+          release/pg-limiter-${{ steps.get_version.outputs.version }}.zip
         draft: false
         prerelease: false
       env:
