@@ -73,6 +73,10 @@ from telegram_bot.handlers.limits import (
     show_special_limit_function,
     get_general_limit_number,
     get_general_limit_number_handler,
+    handle_general_limit_menu_callback,
+    handle_general_limit_preset_callback,
+    handle_general_limit_custom_callback,
+    handle_set_special_limit_callback,
 )
 from telegram_bot.handlers.users import (
     set_except_users,
@@ -148,7 +152,7 @@ from telegram_bot.handlers.admin_filter import (
 )
 
 # Import utilities
-from telegram_bot.utils import check_admin, add_admin_to_config
+from telegram_bot.utils import check_admin, add_admin_to_config, add_except_user, handel_special_limit
 from utils.logs import get_logger
 
 # Module logger
@@ -505,6 +509,58 @@ async def callback_query_handler(update: Update, context: ContextTypes.DEFAULT_T
     if data.startswith("disabled_page:"):
         page = int(data.split(":", 1)[1])
         await show_disabled_users_menu(query, page=page)
+        return
+    
+    # Handle add_except:username callback (from notification buttons)
+    if data.startswith("add_except:"):
+        username = data.split(":", 1)[1]
+        result = await add_except_user(username)
+        if result:
+            await query.edit_message_text(
+                text=f"✅ User <code>{username}</code> added to except list!",
+                parse_mode="HTML"
+            )
+        else:
+            await query.edit_message_text(
+                text=f"⚠️ Failed to add <code>{username}</code> to except list.",
+                parse_mode="HTML"
+            )
+        return
+    
+    # Handle set_limit:username:limit callback (from notification buttons)
+    if data.startswith("set_limit:"):
+        parts = data.split(":")
+        if len(parts) >= 3:
+            username = parts[1]
+            limit = int(parts[2])
+            result = await handel_special_limit(username, limit)
+            if result:
+                await query.edit_message_text(
+                    text=f"✅ Special limit <b>{limit}</b> set for <code>{username}</code>!",
+                    parse_mode="HTML"
+                )
+            else:
+                await query.edit_message_text(
+                    text=f"⚠️ Failed to set special limit for <code>{username}</code>.",
+                    parse_mode="HTML"
+                )
+        return
+    
+    # General limit preset callbacks
+    if data == CallbackData.GENERAL_LIMIT_2:
+        await handle_general_limit_preset_callback(query, context, 2)
+        return
+    
+    if data == CallbackData.GENERAL_LIMIT_3:
+        await handle_general_limit_preset_callback(query, context, 3)
+        return
+    
+    if data == CallbackData.GENERAL_LIMIT_4:
+        await handle_general_limit_preset_callback(query, context, 4)
+        return
+    
+    if data == CallbackData.GENERAL_LIMIT_CUSTOM:
+        await handle_general_limit_custom_callback(query, context)
         return
     
     # Fallback for unhandled callbacks
