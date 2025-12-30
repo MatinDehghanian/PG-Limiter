@@ -93,7 +93,9 @@
 
 ```bash
 # Download and run the installer
-sudo bash <(curl -sSL https://raw.githubusercontent.com/MatinDehghanian/PG-Limiter/main/pg-limiter.sh) install
+curl -sSL https://raw.githubusercontent.com/MatinDehghanian/PG-Limiter/main/pg-limiter.sh -o /tmp/pg-limiter.sh
+
+sudo bash /tmp/pg-limiter.sh install
 ```
 
 This will:
