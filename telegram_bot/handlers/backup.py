@@ -304,16 +304,24 @@ async def migrate_backup_start(update: Update, _context: ContextTypes.DEFAULT_TY
 
 async def migrate_backup_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handle the uploaded JSON file and migrate it to database."""
-    backup_logger.info(f"migrate_backup_handler called, document: {update.message.document}")
+    backup_logger.info(f"migrate_backup_handler called")
+    backup_logger.info(f"  - Message: {update.message}")
+    backup_logger.info(f"  - Document: {update.message.document if update.message else None}")
+    backup_logger.info(f"  - Text: {update.message.text if update.message else None}")
     
     try:
-        if not update.message.document:
-            backup_logger.warning("No document in message")
-            await update.message.reply_html(
-                "❌ Please send a JSON file.\n"
-                "Use /migrate_backup to try again."
-            )
+        if not update.message:
+            backup_logger.error("No message in update")
             return ConversationHandler.END
+        
+        if not update.message.document:
+            backup_logger.warning("No document in message - prompting user again")
+            await update.message.reply_html(
+                "❌ Please send a <b>JSON file</b> (not text).\n\n"
+                "Make sure to send the file as a document attachment.\n"
+                "Use /cancel to abort."
+            )
+            return MIGRATE_WAITING_FILE  # Stay in the conversation
         
         file_name = update.message.document.file_name
         backup_logger.info(f"Received file: {file_name}")

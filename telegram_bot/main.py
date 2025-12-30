@@ -80,6 +80,10 @@ from telegram_bot.handlers.limits import (
     handle_special_limit_username_input,
     handle_special_limit_number_input,
     handle_show_special_limit_callback,
+    handle_special_limits_page_callback,
+    handle_edit_special_limit_callback,
+    handle_special_limit_info_callback,
+    handle_remove_special_limit_callback,
 )
 from telegram_bot.handlers.users import (
     set_except_users,
@@ -265,6 +269,11 @@ async def callback_query_handler(update: Update, context: ContextTypes.DEFAULT_T
             reply_markup=create_main_menu_keyboard(),
             parse_mode="HTML"
         )
+        return
+    
+    # No-op callback (for buttons that just display info)
+    if data == "noop":
+        await query.answer()
         return
     
     # Settings menu
@@ -569,6 +578,30 @@ async def callback_query_handler(update: Update, context: ContextTypes.DEFAULT_T
         await show_disabled_users_menu(query, page=page)
         return
     
+    # Handle special limits pagination
+    if data.startswith("special_limits_page:"):
+        page = int(data.split(":", 1)[1])
+        await handle_special_limits_page_callback(query, context, page)
+        return
+    
+    # Handle edit special limit callback
+    if data.startswith("edit_special_limit:"):
+        username = data.split(":", 1)[1]
+        await handle_edit_special_limit_callback(query, context, username)
+        return
+    
+    # Handle special limit info callback
+    if data.startswith("special_limit_info:"):
+        username = data.split(":", 1)[1]
+        await handle_special_limit_info_callback(query, context, username)
+        return
+    
+    # Handle remove special limit callback
+    if data.startswith("remove_special_limit:"):
+        username = data.split(":", 1)[1]
+        await handle_remove_special_limit_callback(query, context, username)
+        return
+    
     # Handle add_except:username callback (from notification buttons)
     if data.startswith("add_except:"):
         username = data.split(":", 1)[1]
@@ -844,14 +877,13 @@ application.add_handler(
         states={
             MIGRATE_WAITING_FILE: [
                 MessageHandler(filters.Document.ALL, migrate_backup_handler),
+                MessageHandler(filters.TEXT & ~filters.COMMAND, migrate_backup_handler),
             ],
         },
         fallbacks=[
             CommandHandler("cancel", migrate_backup_cancel),
-            MessageHandler(filters.ALL & ~filters.COMMAND, migrate_backup_handler),
         ],
-        per_user=True,
-        per_chat=True,
+        allow_reentry=True,
     )
 )
 

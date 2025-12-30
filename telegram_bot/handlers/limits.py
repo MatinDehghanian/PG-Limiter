@@ -3,7 +3,7 @@ Limit management handlers for the Telegram bot.
 Includes functions for setting special limits, general limits, and viewing limits.
 """
 
-from telegram import Update
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
     ContextTypes,
     ConversationHandler,
@@ -19,6 +19,7 @@ from telegram_bot.utils import (
     check_admin,
     add_admin_to_config,
     get_special_limit_list,
+    get_special_limits_dict,
     handel_special_limit,
     save_general_limit,
 )
@@ -96,12 +97,19 @@ async def show_special_limit_function(
     check = await check_admin_privilege(update)
     if check is not None:
         return check
-    out_put = await get_special_limit_list()
-    if out_put:
-        for user in out_put:
-            await update.message.reply_html(text=user)
+    
+    special_limits = await get_special_limits_dict()
+    
+    if special_limits:
+        total = len(special_limits)
+        text = f"📋 <b>Special Limits</b> ({total} user{'s' if total != 1 else ''})\n\n"
+        text += "Click on a user to view details or use Edit to change the limit."
+        keyboard = create_special_limits_keyboard(special_limits, page=0)
     else:
-        await update.message.reply_html(text="No special limit found!")
+        text = "📋 <b>Special Limits</b>\n\nNo special limits found!"
+        keyboard = create_back_to_main_keyboard()
+    
+    await update.message.reply_html(text=text, reply_markup=keyboard)
     return ConversationHandler.END
 
 
@@ -196,16 +204,141 @@ async def handle_special_limit_custom_callback(query, context: ContextTypes.DEFA
     )
 
 
-async def handle_show_special_limit_callback(query, _context: ContextTypes.DEFAULT_TYPE):
-    """Handle callback for showing all special limits."""
-    out_put = await get_special_limit_list()
-    if out_put:
-        text = "📋 <b>Special Limits:</b>\n\n" + "\n".join(out_put)
+def create_special_limits_keyboard(special_limits: dict, page: int = 0, per_page: int = 5):
+    """
+    Create a keyboard with special limits as glass-style buttons.
+    Each user gets an edit button.
+    
+    Args:
+        special_limits: Dict of username -> limit
+        page: Current page number (0-indexed)
+        per_page: Number of users per page
+    """
+    keyboard = []
+    users_list = list(special_limits.items())
+    total_users = len(users_list)
+    total_pages = max(1, (total_users + per_page - 1) // per_page)
+    
+    # Get current page users
+    start_idx = page * per_page
+    end_idx = min(start_idx + per_page, total_users)
+    page_users = users_list[start_idx:end_idx]
+    
+    # Add user buttons with glass-style appearance
+    for username, limit in page_users:
+        # Glass-style button with user info and edit action
+        keyboard.append([
+            InlineKeyboardButton(
+                f"👤 {username} | Limit: {limit}",
+                callback_data=f"special_limit_info:{username}"
+            ),
+            InlineKeyboardButton(
+                "✏️ Edit",
+                callback_data=f"edit_special_limit:{username}"
+            )
+        ])
+    
+    # Pagination buttons
+    nav_buttons = []
+    if page > 0:
+        nav_buttons.append(InlineKeyboardButton("⬅️ Prev", callback_data=f"special_limits_page:{page-1}"))
+    
+    # Page indicator
+    nav_buttons.append(InlineKeyboardButton(f"📄 {page+1}/{total_pages}", callback_data="noop"))
+    
+    if page < total_pages - 1:
+        nav_buttons.append(InlineKeyboardButton("Next ➡️", callback_data=f"special_limits_page:{page+1}"))
+    if nav_buttons:
+        keyboard.append(nav_buttons)
+    
+    # Refresh and back buttons
+    keyboard.append([
+        InlineKeyboardButton("🔄 Refresh", callback_data=CallbackData.SHOW_SPECIAL_LIMIT),
+    ])
+    keyboard.append([
+        InlineKeyboardButton("« Back to Limits", callback_data=CallbackData.LIMITS_MENU),
+    ])
+    
+    return InlineKeyboardMarkup(keyboard)
+
+
+async def handle_show_special_limit_callback(query, _context: ContextTypes.DEFAULT_TYPE, page: int = 0):
+    """Handle callback for showing all special limits with pagination."""
+    special_limits = await get_special_limits_dict()
+    
+    if special_limits:
+        total = len(special_limits)
+        text = f"📋 <b>Special Limits</b> ({total} user{'s' if total != 1 else ''})\n\n"
+        text += "Click on a user to view details or use Edit to change the limit."
+        keyboard = create_special_limits_keyboard(special_limits, page=page)
     else:
-        text = "📋 No special limits found!"
+        text = "📋 <b>Special Limits</b>\n\nNo special limits found!"
+        keyboard = create_back_to_main_keyboard()
+    
     await query.edit_message_text(
         text=text,
-        reply_markup=create_back_to_main_keyboard(),
+        reply_markup=keyboard,
+        parse_mode="HTML"
+    )
+
+
+async def handle_special_limits_page_callback(query, _context: ContextTypes.DEFAULT_TYPE, page: int):
+    """Handle callback for special limits pagination."""
+    await handle_show_special_limit_callback(query, _context, page=page)
+
+
+async def handle_edit_special_limit_callback(query, context: ContextTypes.DEFAULT_TYPE, username: str):
+    """Handle callback for editing a special limit."""
+    context.user_data["selected_user"] = username
+    await query.edit_message_text(
+        text=f"🎯 <b>Edit Limit for {username}</b>\n\nSelect a new limit:",
+        reply_markup=create_special_limit_options_keyboard(),
+        parse_mode="HTML"
+    )
+
+
+async def handle_special_limit_info_callback(query, _context: ContextTypes.DEFAULT_TYPE, username: str):
+    """Handle callback for showing special limit info for a user."""
+    special_limits = await get_special_limits_dict()
+    limit = special_limits.get(username, "N/A")
+    
+    keyboard = InlineKeyboardMarkup([
+        [
+            InlineKeyboardButton("✏️ Edit Limit", callback_data=f"edit_special_limit:{username}"),
+            InlineKeyboardButton("🗑️ Remove", callback_data=f"remove_special_limit:{username}")
+        ],
+        [InlineKeyboardButton("« Back to List", callback_data=CallbackData.SHOW_SPECIAL_LIMIT)]
+    ])
+    
+    await query.edit_message_text(
+        text=f"👤 <b>User:</b> <code>{username}</code>\n"
+             f"🎯 <b>Special Limit:</b> {limit} device{'s' if limit != 1 else ''}\n\n"
+             f"Use the buttons below to edit or remove this limit.",
+        reply_markup=keyboard,
+        parse_mode="HTML"
+    )
+
+
+async def handle_remove_special_limit_callback(query, _context: ContextTypes.DEFAULT_TYPE, username: str):
+    """Handle callback for removing a special limit."""
+    from db.database import get_db, DB_AVAILABLE
+    from db.crud import UserLimitCRUD
+    
+    if DB_AVAILABLE:
+        async with get_db() as db:
+            deleted = await UserLimitCRUD.delete(db, username)
+            if deleted:
+                text = f"✅ Special limit for <b>{username}</b> removed!\n\nThis user will now use the general limit."
+            else:
+                text = f"❌ No special limit found for <b>{username}</b>."
+    else:
+        text = "❌ Database not available."
+    
+    await query.edit_message_text(
+        text=text,
+        reply_markup=InlineKeyboardMarkup([
+            [InlineKeyboardButton("« Back to List", callback_data=CallbackData.SHOW_SPECIAL_LIMIT)]
+        ]),
         parse_mode="HTML"
     )
 

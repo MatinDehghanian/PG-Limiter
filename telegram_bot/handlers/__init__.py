@@ -19,6 +19,11 @@ from telegram_bot.handlers.limits import (
     show_special_limit_function,
     get_general_limit_number,
     get_general_limit_number_handler,
+    handle_show_special_limit_callback,
+    handle_special_limits_page_callback,
+    handle_edit_special_limit_callback,
+    handle_special_limit_info_callback,
+    handle_remove_special_limit_callback,
 )
 
 from telegram_bot.handlers.users import (
@@ -113,6 +118,11 @@ __all__ = [
     "show_special_limit_function",
     "get_general_limit_number",
     "get_general_limit_number_handler",
+    "handle_show_special_limit_callback",
+    "handle_special_limits_page_callback",
+    "handle_edit_special_limit_callback",
+    "handle_special_limit_info_callback",
+    "handle_remove_special_limit_callback",
     # Users handlers
     "set_except_users",
     "set_except_users_handler",

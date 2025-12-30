@@ -230,6 +230,25 @@ async def add_base_information(domain: str, password: str, username: str):
     await write_json_file(data)
 
 
+async def get_special_limits_dict() -> dict:
+    """
+    This function retrieves the special limits from database as a dictionary.
+
+    Returns:
+        dict: Dictionary of username -> limit
+    """
+    if DB_AVAILABLE:
+        async with get_db() as db:
+            special_limits = await UserLimitCRUD.get_all(db)
+            return special_limits or {}
+    
+    # Fallback to config.json
+    if os.path.exists("config.json"):
+        data = await read_json_file()
+        return data.get("limits", {}).get("special", {})
+    return {}
+
+
 async def get_special_limit_list() -> list | None:
     """
     This function retrieves the list of special limits from database,
