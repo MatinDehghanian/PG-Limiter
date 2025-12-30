@@ -87,19 +87,38 @@ def setup_logging():
     for handler in root_logger.handlers[:]:
         root_logger.removeHandler(handler)
 
-    # File handler - detailed logs
-    file_handler = RotatingFileHandler(
-        "app.log",
-        maxBytes=10 * 10**6,  # 10MB per file
-        backupCount=5,
-        encoding="utf-8",
-    )
-    file_handler.setLevel(logging.DEBUG)
-    file_format = logging.Formatter(
-        "%(asctime)s | %(levelname)-8s | %(name)-25s | %(funcName)-20s | %(message)s",
-        datefmt="%Y-%m-%d %H:%M:%S",
-    )
-    file_handler.setFormatter(file_format)
+    # File handler - detailed logs (with error handling)
+    try:
+        # Try to create log file in current directory or /var/lib/pg-limiter/logs
+        log_paths = ["app.log", "/var/lib/pg-limiter/logs/app.log", "/tmp/pg-limiter.log"]
+        file_handler = None
+        
+        for log_path in log_paths:
+            try:
+                log_dir = os.path.dirname(log_path)
+                if log_dir and not os.path.exists(log_dir):
+                    os.makedirs(log_dir, exist_ok=True)
+                file_handler = RotatingFileHandler(
+                    log_path,
+                    maxBytes=10 * 10**6,  # 10MB per file
+                    backupCount=5,
+                    encoding="utf-8",
+                )
+                break
+            except (PermissionError, OSError):
+                continue
+        
+        if file_handler:
+            file_handler.setLevel(logging.DEBUG)
+            file_format = logging.Formatter(
+                "%(asctime)s | %(levelname)-8s | %(name)-25s | %(funcName)-20s | %(message)s",
+                datefmt="%Y-%m-%d %H:%M:%S",
+            )
+            file_handler.setFormatter(file_format)
+            root_logger.addHandler(file_handler)
+    except Exception:
+        # If file logging fails, continue with console only
+        pass
 
     # Console handler - colored output
     console_handler = logging.StreamHandler(sys.stdout)
@@ -118,7 +137,6 @@ def setup_logging():
         )
     console_handler.setFormatter(console_format)
 
-    root_logger.addHandler(file_handler)
     root_logger.addHandler(console_handler)
 
     # Reduce noise from external libraries

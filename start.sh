@@ -1,6 +1,6 @@
 #!/bin/bash
 
-VERSION="0.5.4"
+VERSION="0.5.5"
 
 # Colors for output
 RED='\033[0;31m'
@@ -99,24 +99,56 @@ log_debug "Redis URL: ${REDIS_URL:-not configured (using in-memory cache)}"
 # STEP 3: Initialize database
 # ═══════════════════════════════════════════════════════════════════════════════
 log_step 3 "Initializing database..."
-DB_OUTPUT=$(timeout 30 python -c "
+
+# First, ensure data directory exists and is writable
+if [ ! -d "/app/data" ]; then
+    mkdir -p /app/data
+fi
+
+# Test that we can create/write to the database file
+touch /app/data/pg_limiter.db 2>/dev/null || {
+    log_error "Cannot write to database directory /app/data"
+    exit 1
+}
+
+# Initialize database with simpler, more direct approach
+log_debug "Running database initialization..."
+DB_OUTPUT=$(timeout 60 python -u -c "
 import asyncio
 import sys
+import os
+
+# Ensure unbuffered output
+os.environ['PYTHONUNBUFFERED'] = '1'
+
+print('Starting database initialization...', flush=True)
+
+async def init():
+    print('Importing database module...', flush=True)
+    from db.database import init_db
+    print('Running init_db()...', flush=True)
+    await init_db()
+    print('SUCCESS', flush=True)
+
 try:
-    from db import init_db
-    asyncio.run(init_db())
-    print('SUCCESS')
+    asyncio.run(init())
 except Exception as e:
-    print(f'ERROR: {e}', file=sys.stderr)
+    import traceback
+    print(f'ERROR: {e}', flush=True)
+    traceback.print_exc()
     sys.exit(1)
 " 2>&1)
 DB_EXIT=$?
 
 if [ $DB_EXIT -eq 124 ]; then
-    log_error "Database initialization timed out (30s)"
+    log_error "Database initialization timed out (60s)"
+    log_debug "Last output: $DB_OUTPUT"
     exit 1
 elif [ $DB_EXIT -ne 0 ]; then
-    log_error "Database initialization failed: $DB_OUTPUT"
+    log_error "Database initialization failed:"
+    echo "$DB_OUTPUT" | while read line; do
+        log_debug "$line"
+    done
     exit 1
 fi
 log_info "Database initialized"
