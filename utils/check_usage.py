@@ -157,6 +157,7 @@ async def check_ip_used() -> dict:
     1. Shows all active users with device count >= general_limit in ONE combined message
     2. Sends SEPARATE action messages for users who don't have special limit set
        (for setting their limit via inline buttons)
+    3. Respects group filter and admin filter settings
     """
     global isp_detector
     
@@ -165,6 +166,14 @@ async def check_ip_used() -> dict:
     special_limit = config_data.get("limits", {}).get("special", {})
     except_users = config_data.get("except_users", [])  # except_users is at root level
     show_enhanced_details = config_data.get("display", {}).get("show_enhanced_details", True)
+    
+    # Get panel data for filter checks
+    panel_config = config_data.get("panel", {})
+    panel_data = PanelType(
+        panel_config.get("username", ""),
+        panel_config.get("password", ""),
+        panel_config.get("domain", "")
+    )
     
     # Initialize ISP detector with token from config
     if isp_detector is None:
@@ -177,6 +186,7 @@ async def check_ip_used() -> dict:
     
     all_users_log = {}
     enhanced_users_info = {}
+    filtered_users = set()  # Users filtered out by group/admin filters
     
     # Collect all unique IPs for batch ISP lookup
     all_ips = set()
@@ -204,9 +214,31 @@ async def check_ip_used() -> dict:
     # Get ISP information for all IPs
     isp_info_batch = await isp_detector.get_multiple_isp_info(list(all_ips))
     
-    # Create enhanced user info with ISP details
+    # Pre-filter users based on group and admin filter settings
+    # This ensures we don't show logs or send action messages for filtered users
+    for email in list(ACTIVE_USERS.keys()):
+        # Check group filter
+        should_limit_group, _ = await should_limit_user(panel_data, email, config_data)
+        if not should_limit_group:
+            filtered_users.add(email)
+            continue
+        
+        # Check admin filter
+        should_limit_admin, _ = await should_limit_user_by_admin(panel_data, email, config_data)
+        if not should_limit_admin:
+            filtered_users.add(email)
+            continue
+    
+    if filtered_users:
+        logger.info(f"Filters applied: {len(filtered_users)} users excluded from monitoring")
+    
+    # Create enhanced user info with ISP details (only for non-filtered users)
     for email, formatted_ips in all_users_log.items():
         if not formatted_ips:
+            continue
+        
+        # Skip filtered users
+        if email in filtered_users:
             continue
             
         ip_mapping = ip_mappings.get(email, {})
