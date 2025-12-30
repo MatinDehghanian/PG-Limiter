@@ -1,9 +1,13 @@
 name: Build and Push Docker Image
 
 on:
+  workflow_run:
+    workflows: ["Build and Release Limiter"]
+    types:
+      - completed
+    branches: [main, master]
   push:
-    branches: [ main, master ]
-    tags: [ 'v*' ]
+    tags: ['v*']
   workflow_dispatch:
 
 env:
@@ -13,6 +17,11 @@ env:
 jobs:
   build-and-push:
     runs-on: ubuntu-latest
+    # Only run if triggered manually, by tag, or if the release workflow succeeded
+    if: >
+      github.event_name == 'workflow_dispatch' ||
+      github.event_name == 'push' ||
+      (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success')
     permissions:
       contents: read
       packages: write
