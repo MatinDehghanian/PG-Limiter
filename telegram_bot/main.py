@@ -94,6 +94,11 @@ from telegram_bot.handlers.users import (
     enable_single_user,
     enable_all_disabled_users,
     cleanup_deleted_users_handler,
+    handle_show_except_users_callback,
+    handle_add_except_user_callback,
+    handle_remove_except_user_callback,
+    handle_except_user_input,
+    handle_remove_except_user_input,
 )
 from telegram_bot.handlers.settings import (
     set_panel_domain,
@@ -420,27 +425,15 @@ async def callback_query_handler(update: Update, context: ContextTypes.DEFAULT_T
         return
     
     if data == CallbackData.SHOW_EXCEPT_USERS:
-        await show_except_users(update, context)
+        await handle_show_except_users_callback(query, context)
         return
     
     if data == CallbackData.SET_EXCEPT_USER:
-        await query.edit_message_text(
-            text="👤 <b>Add Except User</b>\n\n"
-                 "Use the command:\n"
-                 "<code>/set_except_user username</code>",
-            reply_markup=create_back_to_main_keyboard(),
-            parse_mode="HTML"
-        )
+        await handle_add_except_user_callback(query, context)
         return
     
     if data == CallbackData.REMOVE_EXCEPT_USER:
-        await query.edit_message_text(
-            text="🗑 <b>Remove Except User</b>\n\n"
-                 "Use the command:\n"
-                 "<code>/remove_except_user username</code>",
-            reply_markup=create_back_to_main_keyboard(),
-            parse_mode="HTML"
-        )
+        await handle_remove_except_user_callback(query, context)
         return
     
     if data == CallbackData.SHOW_SPECIAL_LIMIT:
@@ -744,6 +737,15 @@ async def text_message_handler(update: Update, context: ContextTypes.DEFAULT_TYP
     
     if waiting_for == "ipinfo_token":
         await handle_ipinfo_token_input(update, context)
+        return
+    
+    # Handle except user input
+    if waiting_for == "except_user":
+        await handle_except_user_input(update, context)
+        return
+    
+    if waiting_for == "remove_except_user":
+        await handle_remove_except_user_input(update, context)
         return
     
     # Handle notification custom limit input

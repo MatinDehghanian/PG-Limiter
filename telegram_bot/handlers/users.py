@@ -464,12 +464,12 @@ async def handle_users_menu_callback(query, _context: ContextTypes.DEFAULT_TYPE)
 
 
 async def handle_show_except_users_callback(query, _context: ContextTypes.DEFAULT_TYPE):
-    """Handle callback for showing except users."""
+    """Handle callback for showing except users list (whitelist)."""
     messages = await show_except_users_handler()
     if messages:
-        text = "👥 <b>Except Users:</b>\n\n" + "\n".join(messages)
+        text = "✅ <b>Whitelist (Except Users):</b>\n\n" + "\n".join(messages)
     else:
-        text = "👥 No except users found!"
+        text = "📋 <b>Whitelist is empty!</b>\n\nNo users are currently in the whitelist."
     await query.edit_message_text(
         text=text,
         reply_markup=create_back_to_users_keyboard(),
@@ -477,20 +477,24 @@ async def handle_show_except_users_callback(query, _context: ContextTypes.DEFAUL
     )
 
 
-async def handle_set_except_user_callback(query, context: ContextTypes.DEFAULT_TYPE):
-    """Handle callback for initiating add except user flow."""
+async def handle_add_except_user_callback(query, context: ContextTypes.DEFAULT_TYPE):
+    """Handle callback for initiating add except user."""
     context.user_data["waiting_for"] = "except_user"
     await query.edit_message_text(
-        text="👥 <b>Add Except User</b>\n\nSend the username to add:",
+        text="➕ <b>Add User to Whitelist</b>\n\n"
+             "Send the username to add to the whitelist:\n\n"
+             "<i>Example: <code>john_doe</code></i>",
         parse_mode="HTML"
     )
 
 
 async def handle_remove_except_user_callback(query, context: ContextTypes.DEFAULT_TYPE):
-    """Handle callback for initiating remove except user flow."""
+    """Handle callback for initiating remove except user."""
     context.user_data["waiting_for"] = "remove_except_user"
     await query.edit_message_text(
-        text="👥 <b>Remove Except User</b>\n\nSend the username to remove:",
+        text="➖ <b>Remove User from Whitelist</b>\n\n"
+             "Send the username to remove from the whitelist:\n\n"
+             "<i>Example: <code>john_doe</code></i>",
         parse_mode="HTML"
     )
 

@@ -20,6 +20,17 @@ from telegram_bot.constants import (
 )
 
 
+async def _send_response(update: Update, text: str):
+    """
+    Helper to send response in both message and callback query contexts.
+    """
+    if update.callback_query:
+        await update.callback_query.answer()
+        await update.callback_query.message.reply_html(text=text)
+    elif update.message:
+        await update.message.reply_html(text=text)
+
+
 async def check_admin_privilege(update: Update):
     """
     Checks if the user has admin privileges.
@@ -30,8 +41,9 @@ async def check_admin_privilege(update: Update):
         await add_admin_to_config(update.effective_chat.id)
     admins = await check_admin()
     if update.effective_chat.id not in admins:
-        await update.message.reply_html(
-            text="Sorry, you do not have permission to execute this command."
+        await _send_response(
+            update,
+            "Sorry, you do not have permission to execute this command."
         )
         return ConversationHandler.END
     return None

@@ -9,6 +9,7 @@ from telegram import Update
 from telegram.ext import ContextTypes, ConversationHandler
 
 from telegram_bot.utils import check_admin, add_admin_to_config
+from telegram_bot.keyboards import create_back_to_main_keyboard
 from utils.read_config import read_config
 from utils.connection_analyzer import (
     generate_connection_report,
@@ -17,6 +18,27 @@ from utils.connection_analyzer import (
     get_users_by_node,
     get_users_by_inbound_protocol
 )
+
+
+async def _send_response(update: Update, text: str, parse_mode: str = "HTML", reply_markup=None):
+    """
+    Helper to send response in both message and callback query contexts.
+    """
+    if update.callback_query:
+        # In callback query context, answer the callback first
+        await update.callback_query.answer()
+        # Then send a new message (can't use edit for long reports)
+        await update.callback_query.message.reply_text(
+            text=text,
+            parse_mode=parse_mode,
+            reply_markup=reply_markup
+        )
+    elif update.message:
+        await update.message.reply_text(
+            text=text,
+            parse_mode=parse_mode,
+            reply_markup=reply_markup
+        )
 
 
 async def check_admin_privilege(update: Update):
@@ -28,8 +50,9 @@ async def check_admin_privilege(update: Update):
         await add_admin_to_config(update.effective_chat.id)
     admins = await check_admin()
     if update.effective_chat.id not in admins:
-        await update.message.reply_html(
-            text="Sorry, you do not have permission to execute this command."
+        await _send_response(
+            update,
+            "Sorry, you do not have permission to execute this command."
         )
         return ConversationHandler.END
 
@@ -45,17 +68,17 @@ async def connection_report_command(update: Update, context: ContextTypes.DEFAUL
         # Split long messages to avoid Telegram's message length limit
         max_length = 4000
         if len(report) <= max_length:
-            await update.message.reply_text(f"<code>{report}</code>", parse_mode="HTML")
+            await _send_response(update, f"<code>{report}</code>")
         else:
             # Split the report into smaller chunks
             chunks = [report[i:i+max_length] for i in range(0, len(report), max_length)]
             for i, chunk in enumerate(chunks):
-                await update.message.reply_text(
-                    f"<code>Part {i+1}/{len(chunks)}:\n{chunk}</code>", 
-                    parse_mode="HTML"
+                await _send_response(
+                    update, 
+                    f"<code>Part {i+1}/{len(chunks)}:\n{chunk}</code>"
                 )
     except Exception as e:
-        await update.message.reply_text(f"Error generating report: {str(e)}")
+        await _send_response(update, f"Error generating report: {str(e)}")
 
 
 async def node_usage_report_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -66,9 +89,9 @@ async def node_usage_report_command(update: Update, context: ContextTypes.DEFAUL
     
     try:
         report = await generate_node_usage_report()
-        await update.message.reply_text(f"<code>{report}</code>", parse_mode="HTML")
+        await _send_response(update, f"<code>{report}</code>")
     except Exception as e:
-        await update.message.reply_text(f"Error generating report: {str(e)}")
+        await _send_response(update, f"Error generating report: {str(e)}")
 
 
 async def multi_device_users_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -80,7 +103,7 @@ async def multi_device_users_command(update: Update, context: ContextTypes.DEFAU
     try:
         multi_device_users = await get_multi_device_users()
         if not multi_device_users:
-            await update.message.reply_text("No multi-device users detected.")
+            await _send_response(update, "No multi-device users detected.")
             return
         
         report_lines = ["<b>Multi-Device Users:</b>\n"]
@@ -92,9 +115,9 @@ async def multi_device_users_command(update: Update, context: ContextTypes.DEFAU
             report_lines.append("")
         
         report = "\n".join(report_lines)
-        await update.message.reply_text(report, parse_mode="HTML")
+        await _send_response(update, report)
     except Exception as e:
-        await update.message.reply_text(f"Error generating report: {str(e)}")
+        await _send_response(update, f"Error generating report: {str(e)}")
 
 
 async def users_by_node_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -104,7 +127,7 @@ async def users_by_node_command(update: Update, context: ContextTypes.DEFAULT_TY
         return check
     
     if not context.args:
-        await update.message.reply_text("Usage: /users_by_node <node_id>")
+        await _send_response(update, "Usage: /users_by_node <node_id>")
         return
     
     try:
@@ -112,7 +135,7 @@ async def users_by_node_command(update: Update, context: ContextTypes.DEFAULT_TY
         users_on_node = await get_users_by_node(node_id)
         
         if not users_on_node:
-            await update.message.reply_text(f"No users found on node {node_id}.")
+            await _send_response(update, f"No users found on node {node_id}.")
             return
         
         report_lines = [f"<b>Users on Node {node_id}:</b>\n"]
@@ -123,11 +146,11 @@ async def users_by_node_command(update: Update, context: ContextTypes.DEFAULT_TY
             report_lines.append("")
         
         report = "\n".join(report_lines)
-        await update.message.reply_text(report, parse_mode="HTML")
+        await _send_response(update, report)
     except ValueError:
-        await update.message.reply_text("Invalid node ID. Please provide a valid number.")
+        await _send_response(update, "Invalid node ID. Please provide a valid number.")
     except Exception as e:
-        await update.message.reply_text(f"Error generating report: {str(e)}")
+        await _send_response(update, f"Error generating report: {str(e)}")
 
 
 async def users_by_protocol_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -137,7 +160,10 @@ async def users_by_protocol_command(update: Update, context: ContextTypes.DEFAUL
         return check
     
     if not context.args:
-        await update.message.reply_text("Usage: /users_by_protocol <protocol>\nExample: /users_by_protocol \"Vless Direct\"")
+        await _send_response(
+            update, 
+            "Usage: /users_by_protocol <protocol>\nExample: /users_by_protocol \"Vless Direct\""
+        )
         return
     
     try:
@@ -145,7 +171,7 @@ async def users_by_protocol_command(update: Update, context: ContextTypes.DEFAUL
         users_with_protocol = await get_users_by_inbound_protocol(protocol)
         
         if not users_with_protocol:
-            await update.message.reply_text(f"No users found using protocol '{protocol}'.")
+            await _send_response(update, f"No users found using protocol '{protocol}'.")
             return
         
         report_lines = [f"<b>Users using protocol '{protocol}':</b>\n"]
@@ -156,9 +182,9 @@ async def users_by_protocol_command(update: Update, context: ContextTypes.DEFAUL
             report_lines.append("")
         
         report = "\n".join(report_lines)
-        await update.message.reply_text(report, parse_mode="HTML")
+        await _send_response(update, report)
     except Exception as e:
-        await update.message.reply_text(f"Error generating report: {str(e)}")
+        await _send_response(update, f"Error generating report: {str(e)}")
 
 
 async def ip_history_12h_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -168,7 +194,7 @@ async def ip_history_12h_command(update: Update, context: ContextTypes.DEFAULT_T
         return check
     
     try:
-        await update.message.reply_text("⏳ Generating 12-hour IP history report...")
+        await _send_response(update, "⏳ Generating 12-hour IP history report...")
         
         from utils.ip_history_tracker import ip_history_tracker
         from utils.isp_detector import ISPDetector
@@ -205,18 +231,23 @@ async def ip_history_12h_command(update: Update, context: ContextTypes.DEFAULT_T
             if current_chunk:
                 chunks.append("\n".join(current_chunk))
             
-            # Send chunks
+            # Send chunks - get the message object for sending
+            if update.callback_query:
+                msg = update.callback_query.message
+            else:
+                msg = update.message
+            
             for i, chunk in enumerate(chunks):
                 if i > 0:
                     chunk = f"<b>Part {i+1}/{len(chunks)}</b>\n\n" + chunk
-                await update.message.reply_text(chunk, parse_mode="HTML")
+                await msg.reply_text(chunk, parse_mode="HTML")
                 if i < len(chunks) - 1:
                     await asyncio.sleep(1)
         else:
-            await update.message.reply_text(report, parse_mode="HTML")
+            await _send_response(update, report)
             
     except Exception as e:
-        await update.message.reply_text(f"Error generating report: {str(e)}")
+        await _send_response(update, f"Error generating report: {str(e)}")
         import traceback
         traceback.print_exc()
 
@@ -228,7 +259,7 @@ async def ip_history_48h_command(update: Update, context: ContextTypes.DEFAULT_T
         return check
     
     try:
-        await update.message.reply_text("⏳ Generating 48-hour IP history report...")
+        await _send_response(update, "⏳ Generating 48-hour IP history report...")
         
         from utils.ip_history_tracker import ip_history_tracker
         from utils.isp_detector import ISPDetector
@@ -265,17 +296,22 @@ async def ip_history_48h_command(update: Update, context: ContextTypes.DEFAULT_T
             if current_chunk:
                 chunks.append("\n".join(current_chunk))
             
-            # Send chunks
+            # Send chunks - get the message object for sending
+            if update.callback_query:
+                msg = update.callback_query.message
+            else:
+                msg = update.message
+            
             for i, chunk in enumerate(chunks):
                 if i > 0:
                     chunk = f"<b>Part {i+1}/{len(chunks)}</b>\n\n" + chunk
-                await update.message.reply_text(chunk, parse_mode="HTML")
+                await msg.reply_text(chunk, parse_mode="HTML")
                 if i < len(chunks) - 1:
                     await asyncio.sleep(1)
         else:
-            await update.message.reply_text(report, parse_mode="HTML")
+            await _send_response(update, report)
             
     except Exception as e:
-        await update.message.reply_text(f"Error generating report: {str(e)}")
+        await _send_response(update, f"Error generating report: {str(e)}")
         import traceback
         traceback.print_exc()

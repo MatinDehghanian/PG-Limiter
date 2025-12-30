@@ -13,6 +13,7 @@ from telegram_bot.utils import (
     add_admin_to_config,
     check_admin,
 )
+from telegram_bot.keyboards import create_back_to_main_keyboard
 
 
 async def check_admin_privilege(update: Update):
@@ -25,11 +26,28 @@ async def check_admin_privilege(update: Update):
         await add_admin_to_config(update.effective_chat.id)
     admins = await check_admin()
     if update.effective_chat.id not in admins:
-        await update.message.reply_html(
-            text="Sorry, you do not have permission to execute this command."
-        )
+        if update.message:
+            await update.message.reply_html(
+                text="Sorry, you do not have permission to execute this command."
+            )
+        elif update.callback_query:
+            await update.callback_query.edit_message_text(
+                text="Sorry, you do not have permission to execute this command."
+            )
         return ConversationHandler.END
     return None
+
+
+async def _send_response(update: Update, text: str, parse_mode: str = "HTML"):
+    """Helper to send response for both message and callback query contexts."""
+    if update.message:
+        await update.message.reply_html(text=text)
+    elif update.callback_query:
+        await update.callback_query.edit_message_text(
+            text=text,
+            reply_markup=create_back_to_main_keyboard(),
+            parse_mode=parse_mode
+        )
 
 
 async def monitoring_status(update: Update, _context: ContextTypes.DEFAULT_TYPE):
@@ -45,7 +63,7 @@ async def monitoring_status(update: Update, _context: ContextTypes.DEFAULT_TYPE)
         from utils.warning_system import warning_system
 
         if not warning_system.warnings:
-            await update.message.reply_html(text="🟢 No users are currently being monitored.")
+            await _send_response(update, "🟢 No users are currently being monitored.")
             return ConversationHandler.END
 
         active_warnings = []
@@ -73,10 +91,10 @@ async def monitoring_status(update: Update, _context: ContextTypes.DEFAULT_TYPE)
         if not message_parts:
             message_parts.append("🟢 No active monitoring.")
 
-        await update.message.reply_html(text="\n\n".join(message_parts))
+        await _send_response(update, "\n\n".join(message_parts))
 
     except Exception as e:
-        await update.message.reply_html(text=f"❌ Error getting monitoring status: {str(e)}")
+        await _send_response(update, f"❌ Error getting monitoring status: {str(e)}")
 
     return ConversationHandler.END
 
@@ -96,10 +114,10 @@ async def clear_monitoring(update: Update, _context: ContextTypes.DEFAULT_TYPE):
         warning_system.warnings.clear()
         await warning_system.save_warnings()
 
-        await update.message.reply_html(text=f"✅ Cleared {count} monitoring warnings.")
+        await _send_response(update, f"✅ Cleared {count} monitoring warnings.")
 
     except Exception as e:
-        await update.message.reply_html(text=f"❌ Error clearing monitoring: {str(e)}")
+        await _send_response(update, f"❌ Error clearing monitoring: {str(e)}")
 
     return ConversationHandler.END
 
@@ -117,7 +135,7 @@ async def monitoring_details(update: Update, _context: ContextTypes.DEFAULT_TYPE
         from utils.warning_system import warning_system
 
         if not warning_system.warnings:
-            await update.message.reply_html(text="🟢 No users are currently being monitored.")
+            await _send_response(update, "🟢 No users are currently being monitored.")
             return ConversationHandler.END
 
         message_parts = []
@@ -155,30 +173,9 @@ async def monitoring_details(update: Update, _context: ContextTypes.DEFAULT_TYPE
 
         final_message = "🔍 <b>Detailed Monitoring Analytics:</b>\n\n" + "\n\n".join(message_parts)
 
-        # Check message length and split if necessary
-        if len(final_message) > 4000:
-            parts = []
-            current_part = "🔍 <b>Detailed Monitoring Analytics:</b>\n\n"
-
-            for part in message_parts:
-                if len(current_part + part + "\n\n") > 4000:
-                    parts.append(current_part.strip())
-                    current_part = part + "\n\n"
-                else:
-                    current_part += part + "\n\n"
-
-            if current_part.strip():
-                parts.append(current_part.strip())
-
-            for i, part in enumerate(parts):
-                if i == 0:
-                    await update.message.reply_html(text=part)
-                else:
-                    await update.message.reply_html(text=f"<b>Part {i+1}:</b>\n\n{part}")
-        else:
-            await update.message.reply_html(text=final_message)
+        await _send_response(update, final_message)
 
     except Exception as e:
-        await update.message.reply_html(text=f"❌ Error getting monitoring details: {str(e)}")
+        await _send_response(update, f"❌ Error getting monitoring details: {str(e)}")
 
     return ConversationHandler.END
