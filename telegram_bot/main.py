@@ -145,6 +145,10 @@ from telegram_bot.handlers.admin_filter import (
 
 # Import utilities
 from telegram_bot.utils import check_admin, add_admin_to_config
+from utils.logs import get_logger
+
+# Module logger
+bot_logger = get_logger("telegram.bot")
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -155,15 +159,20 @@ bot_token = None
 try:
     bot_token = os.environ.get("BOT_TOKEN", "")
     if bot_token:
-        print("✓ Bot token loaded from environment")
+        bot_logger.info(f"✓ Bot token loaded from environment: {bot_token[:15]}...")
+    else:
+        bot_logger.warning("⚠ BOT_TOKEN environment variable is empty")
 except Exception as e:
-    print(f"⚠ Error loading config at module import: {e}")
+    bot_logger.error(f"⚠ Error loading config at module import: {e}")
 
 # Create application
 if bot_token:
+    bot_logger.debug("Creating Telegram application with real token...")
     application = ApplicationBuilder().token(bot_token).build()
+    bot_logger.info("✓ Telegram application created successfully")
 else:
     # Dummy token for module loading - replaced at runtime
+    bot_logger.warning("⚠ Using dummy token for module loading")
     application = ApplicationBuilder().token("0000000000:XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX").build()
 
 
@@ -173,17 +182,24 @@ else:
 
 async def start(update: Update, _context: ContextTypes.DEFAULT_TYPE):
     """Handle the /start command."""
+    bot_logger.info(f"📩 Received /start from chat_id={update.effective_chat.id}")
+    
     admins = await check_admin()
+    bot_logger.debug(f"Admin list: {admins}")
+    
     if not admins:
+        bot_logger.info("No admins configured, adding first user as admin")
         await add_admin_to_config(update.effective_chat.id)
     admins = await check_admin()
     
     if update.effective_chat.id not in admins:
+        bot_logger.warning(f"Unauthorized access attempt from chat_id={update.effective_chat.id}")
         await update.message.reply_html(
             text="Sorry, you do not have permission to use this bot."
         )
         return
     
+    bot_logger.info(f"Sending main menu to chat_id={update.effective_chat.id}")
     await update.message.reply_html(
         text=START_MESSAGE,
         reply_markup=create_main_menu_keyboard()
