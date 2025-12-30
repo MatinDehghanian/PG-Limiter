@@ -192,9 +192,20 @@ async def sync_users_to_database(panel_data: PanelType) -> tuple[int, int]:
                     
                     # Get expiry
                     expire_at = None
-                    expire_timestamp = user_data.get("expire")
-                    if expire_timestamp and expire_timestamp > 0:
-                        expire_at = datetime.fromtimestamp(expire_timestamp)
+                    expire_value = user_data.get("expire")
+                    if expire_value:
+                        if isinstance(expire_value, int):
+                            # Unix timestamp
+                            if expire_value > 0:
+                                expire_at = datetime.fromtimestamp(expire_value)
+                        elif isinstance(expire_value, str):
+                            # ISO datetime string
+                            try:
+                                expire_at = datetime.fromisoformat(
+                                    expire_value.replace("Z", "+00:00")
+                                )
+                            except ValueError:
+                                pass
                     
                     # Get note
                     note = user_data.get("note")
