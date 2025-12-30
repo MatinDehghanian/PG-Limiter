@@ -32,7 +32,7 @@ except ImportError:
 # Redis connection settings
 REDIS_URL = os.environ.get("REDIS_URL", "redis://localhost:6379/0")
 REDIS_PASSWORD = os.environ.get("REDIS_PASSWORD", None)
-REDIS_SSL = os.environ.get("REDIS_SSL", "false").lower() == "true"
+# Note: For SSL, use rediss:// URL scheme instead of REDIS_SSL env var
 
 # Cache TTL settings (in seconds)
 CACHE_TTL = {
@@ -220,13 +220,17 @@ class RedisCache:
         try:
             redis_logger.info(f"🔌 Connecting to Redis: {REDIS_URL}")
             
-            # Create Redis client
-            self._client = redis.from_url(
-                REDIS_URL,
-                password=REDIS_PASSWORD,
-                decode_responses=True,
-                ssl=REDIS_SSL,
-            )
+            # Build connection kwargs
+            connection_kwargs = {
+                "decode_responses": True,
+            }
+            
+            # Add password if provided
+            if REDIS_PASSWORD:
+                connection_kwargs["password"] = REDIS_PASSWORD
+            
+            # Create Redis client (ssl handled via URL scheme rediss://)
+            self._client = redis.from_url(REDIS_URL, **connection_kwargs)
             
             # Test connection
             await self._client.ping()
@@ -254,6 +258,11 @@ class RedisCache:
     def client(self):
         """Get the active client (Redis or fallback)."""
         return self._client if self._client else self._fallback
+    
+    @property
+    def is_connected(self) -> bool:
+        """Check if connected to Redis or fallback."""
+        return self._connected
     
     def is_redis(self) -> bool:
         """Check if using real Redis."""

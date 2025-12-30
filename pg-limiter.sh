@@ -199,11 +199,39 @@ services:
     container_name: pg-limiter
     restart: always
     env_file: .env
-    network_mode: host
+    depends_on:
+      - redis
+    networks:
+      - pg-limiter-network
+    ports:
+      - "8080:8080"
     volumes:
       - /var/lib/pg-limiter:/var/lib/pg-limiter
     environment:
       - TZ=${TZ:-UTC}
+      - REDIS_URL=redis://redis:6379
+
+  redis:
+    image: redis:7-alpine
+    container_name: pg-limiter-redis
+    restart: always
+    networks:
+      - pg-limiter-network
+    volumes:
+      - redis-data:/data
+    command: redis-server --appendonly yes --maxmemory 128mb --maxmemory-policy allkeys-lru
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+networks:
+  pg-limiter-network:
+    driver: bridge
+
+volumes:
+  redis-data:
 EOF
 }
 
