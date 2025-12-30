@@ -344,6 +344,25 @@ async def add_except_user(except_user: str) -> str | None:
     return None
 
 
+async def get_except_users_list() -> list:
+    """
+    Retrieve the list of exception users from the database as a list.
+    
+    Returns:
+        list: List of usernames in the whitelist
+    """
+    if DB_AVAILABLE:
+        async with get_db() as db:
+            except_users = await ExceptUserCRUD.get_all(db)
+            return except_users or []
+    
+    # Fallback to config.json
+    if os.path.exists("config.json"):
+        data = await read_json_file()
+        return data.get("except_users", [])
+    return []
+
+
 async def show_except_users_handler() -> list | None:
     """
     Retrieve the list of exception users from the database.

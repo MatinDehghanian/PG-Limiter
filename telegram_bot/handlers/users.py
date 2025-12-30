@@ -19,6 +19,7 @@ from telegram_bot.utils import (
     add_except_user,
     remove_except_user_from_config,
     show_except_users_handler,
+    get_except_users_list,
 )
 from telegram_bot.handlers.admin import check_admin_privilege
 from telegram_bot.keyboards import (
@@ -34,6 +35,67 @@ def create_back_to_users_keyboard():
         [InlineKeyboardButton("« Back to Users", callback_data=CallbackData.BACK_USERS)],
         [InlineKeyboardButton("« Back to Main Menu", callback_data=CallbackData.MAIN_MENU)],
     ]
+    return InlineKeyboardMarkup(keyboard)
+
+
+def create_whitelist_keyboard(whitelist_users: list, page: int = 0, per_page: int = 5):
+    """
+    Create a keyboard with whitelist users as glass-style buttons.
+    Each user gets a delete button.
+    
+    Args:
+        whitelist_users: List of usernames in the whitelist
+        page: Current page number (0-indexed)
+        per_page: Number of users per page
+    """
+    keyboard = []
+    total_users = len(whitelist_users)
+    total_pages = max(1, (total_users + per_page - 1) // per_page)
+    
+    # Get current page users
+    start_idx = page * per_page
+    end_idx = min(start_idx + per_page, total_users)
+    page_users = whitelist_users[start_idx:end_idx]
+    
+    # Add user buttons with glass-style appearance
+    for username in page_users:
+        keyboard.append([
+            InlineKeyboardButton(
+                f"✅ {username}",
+                callback_data=f"whitelist_info:{username}"
+            ),
+            InlineKeyboardButton(
+                "🗑️ Delete",
+                callback_data=f"delete_whitelist:{username}"
+            )
+        ])
+    
+    # Pagination buttons
+    nav_buttons = []
+    if page > 0:
+        nav_buttons.append(InlineKeyboardButton("⬅️ Prev", callback_data=f"whitelist_page:{page-1}"))
+    
+    # Page indicator
+    nav_buttons.append(InlineKeyboardButton(f"📄 {page+1}/{total_pages}", callback_data="noop"))
+    
+    if page < total_pages - 1:
+        nav_buttons.append(InlineKeyboardButton("Next ➡️", callback_data=f"whitelist_page:{page+1}"))
+    if nav_buttons:
+        keyboard.append(nav_buttons)
+    
+    # Add user button
+    keyboard.append([
+        InlineKeyboardButton("➕ Add User", callback_data=CallbackData.SET_EXCEPT_USER),
+    ])
+    
+    # Refresh and back buttons
+    keyboard.append([
+        InlineKeyboardButton("🔄 Refresh", callback_data=CallbackData.SHOW_EXCEPT_USERS),
+    ])
+    keyboard.append([
+        InlineKeyboardButton("« Back to Users", callback_data=CallbackData.BACK_USERS),
+    ])
+    
     return InlineKeyboardMarkup(keyboard)
 
 
@@ -162,16 +224,23 @@ async def remove_except_user_handler(
 
 
 async def show_except_users(update: Update, _context: ContextTypes.DEFAULT_TYPE):
-    """Show the except users for the bot."""
+    """Show the except users for the bot with paginated keyboard."""
     check = await check_admin_privilege(update)
     if check is not None:
         return check
-    messages = await show_except_users_handler()
-    if messages:
-        for message in messages:
-            await update.message.reply_html(text=message)
+    
+    whitelist_users = await get_except_users_list()
+    
+    if whitelist_users:
+        total = len(whitelist_users)
+        text = f"✅ <b>Whitelist (Except Users)</b> ({total} user{'s' if total != 1 else ''})\n\n"
+        text += "These users are exempt from IP limits.\nClick to view details or use Delete to remove."
+        keyboard = create_whitelist_keyboard(whitelist_users, page=0)
     else:
-        await update.message.reply_html(text="No except user found!")
+        text = "✅ <b>Whitelist (Except Users)</b>\n\nNo users in the whitelist."
+        keyboard = create_back_to_users_keyboard()
+    
+    await update.message.reply_html(text=text, reply_markup=keyboard)
     return ConversationHandler.END
 
 
@@ -463,16 +532,63 @@ async def handle_users_menu_callback(query, _context: ContextTypes.DEFAULT_TYPE)
     )
 
 
-async def handle_show_except_users_callback(query, _context: ContextTypes.DEFAULT_TYPE):
-    """Handle callback for showing except users list (whitelist)."""
-    messages = await show_except_users_handler()
-    if messages:
-        text = "✅ <b>Whitelist (Except Users):</b>\n\n" + "\n".join(messages)
+async def handle_show_except_users_callback(query, _context: ContextTypes.DEFAULT_TYPE, page: int = 0):
+    """Handle callback for showing except users list (whitelist) with pagination."""
+    whitelist_users = await get_except_users_list()
+    
+    if whitelist_users:
+        total = len(whitelist_users)
+        text = f"✅ <b>Whitelist (Except Users)</b> ({total} user{'s' if total != 1 else ''})\n\n"
+        text += "These users are exempt from IP limits.\nClick to view details or use Delete to remove."
+        keyboard = create_whitelist_keyboard(whitelist_users, page=page)
     else:
-        text = "📋 <b>Whitelist is empty!</b>\n\nNo users are currently in the whitelist."
+        text = "✅ <b>Whitelist (Except Users)</b>\n\nNo users in the whitelist."
+        keyboard = create_back_to_users_keyboard()
+    
     await query.edit_message_text(
         text=text,
-        reply_markup=create_back_to_users_keyboard(),
+        reply_markup=keyboard,
+        parse_mode="HTML"
+    )
+
+
+async def handle_whitelist_page_callback(query, _context: ContextTypes.DEFAULT_TYPE, page: int):
+    """Handle callback for whitelist pagination."""
+    await handle_show_except_users_callback(query, _context, page=page)
+
+
+async def handle_whitelist_info_callback(query, _context: ContextTypes.DEFAULT_TYPE, username: str):
+    """Handle callback for showing whitelist user info."""
+    keyboard = InlineKeyboardMarkup([
+        [
+            InlineKeyboardButton("🗑️ Delete from Whitelist", callback_data=f"delete_whitelist:{username}")
+        ],
+        [InlineKeyboardButton("« Back to List", callback_data=CallbackData.SHOW_EXCEPT_USERS)]
+    ])
+    
+    await query.edit_message_text(
+        text=f"👤 <b>User:</b> <code>{username}</code>\n\n"
+             f"✅ <b>Status:</b> Whitelisted\n\n"
+             f"This user is exempt from IP limits and will never be disabled by the limiter.",
+        reply_markup=keyboard,
+        parse_mode="HTML"
+    )
+
+
+async def handle_delete_whitelist_callback(query, _context: ContextTypes.DEFAULT_TYPE, username: str):
+    """Handle callback for deleting a user from whitelist."""
+    result = await remove_except_user_from_config(username)
+    
+    if result:
+        text = f"✅ User <b>{username}</b> removed from whitelist!\n\nThis user will now be subject to IP limits."
+    else:
+        text = f"❌ User <b>{username}</b> not found in whitelist."
+    
+    await query.edit_message_text(
+        text=text,
+        reply_markup=InlineKeyboardMarkup([
+            [InlineKeyboardButton("« Back to List", callback_data=CallbackData.SHOW_EXCEPT_USERS)]
+        ]),
         parse_mode="HTML"
     )
 

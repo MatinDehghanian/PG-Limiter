@@ -100,6 +100,9 @@ from telegram_bot.handlers.users import (
     handle_remove_except_user_callback,
     handle_except_user_input,
     handle_remove_except_user_input,
+    handle_whitelist_page_callback,
+    handle_whitelist_info_callback,
+    handle_delete_whitelist_callback,
 )
 from telegram_bot.handlers.settings import (
     set_panel_domain,
@@ -600,6 +603,24 @@ async def callback_query_handler(update: Update, context: ContextTypes.DEFAULT_T
     if data.startswith("remove_special_limit:"):
         username = data.split(":", 1)[1]
         await handle_remove_special_limit_callback(query, context, username)
+        return
+    
+    # Handle whitelist pagination
+    if data.startswith("whitelist_page:"):
+        page = int(data.split(":", 1)[1])
+        await handle_whitelist_page_callback(query, context, page)
+        return
+    
+    # Handle whitelist info callback
+    if data.startswith("whitelist_info:"):
+        username = data.split(":", 1)[1]
+        await handle_whitelist_info_callback(query, context, username)
+        return
+    
+    # Handle delete whitelist callback
+    if data.startswith("delete_whitelist:"):
+        username = data.split(":", 1)[1]
+        await handle_delete_whitelist_callback(query, context, username)
         return
     
     # Handle add_except:username callback (from notification buttons)
