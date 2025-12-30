@@ -2,11 +2,12 @@ name: Build and Push Docker Image
 
 on:
   workflow_run:
-    workflows: ["Build and Release Limiter"]
+    workflows: ["Release PG-Limiter"]
     types:
       - completed
     branches: [main, master]
   push:
+    branches: [main, master]
     tags: ['v*']
   workflow_dispatch:
 
