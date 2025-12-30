@@ -1,8 +1,10 @@
 #!/bin/bash
 set -e
 
+VERSION="0.4.2"
+
 echo "╔═══════════════════════════════════════════════════════════════╗"
-echo "║                    PG-Limiter Starting...                     ║"
+echo "║              PG-Limiter v$VERSION Starting...                   ║"
 echo "╚═══════════════════════════════════════════════════════════════╝"
 
 # Ensure data directories exist

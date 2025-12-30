@@ -4,6 +4,8 @@ set -e
 # PG-Limiter Management Script
 # https://github.com/MatinDehghanian/PG-Limiter
 
+VERSION="0.4.2"
+
 # Configuration
 REPO_OWNER="MatinDehghanian"
 REPO_NAME="PG-Limiter"
@@ -809,6 +811,8 @@ install_completion() {
 
 cmd_help() {
     print_banner
+    echo "PG-Limiter v$VERSION"
+    echo ""
     echo "Usage: pg-limiter <command> [options]"
     echo ""
     colorized_echo blue "Installation:"
@@ -850,6 +854,9 @@ cmd_help() {
 # ═══════════════════════════════════════════════════════════════════════════════
 
 case "${1:-help}" in
+    version|--version|-v)
+        echo "PG-Limiter v$VERSION"
+        ;;
     install)
         cmd_install
         ;;
