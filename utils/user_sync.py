@@ -142,12 +142,8 @@ async def sync_users_to_database(panel_data: PanelType) -> tuple[int, int]:
     errors = 0
     
     try:
-        from db.database import get_db, DB_AVAILABLE
+        from db.database import get_db
         from db.crud.users import UserCRUD
-        
-        if not DB_AVAILABLE:
-            sync_logger.warning("Database not available, skipping sync")
-            return (0, 0)
         
         sync_logger.info("🔄 Starting user sync from panel to database...")
         start_time = datetime.utcnow()
@@ -251,11 +247,8 @@ async def get_user_from_cache(username: str) -> Optional[dict]:
         User dict with group_ids and owner_username, or None if not found
     """
     try:
-        from db.database import get_db, DB_AVAILABLE
+        from db.database import get_db
         from db.crud.users import UserCRUD
-        
-        if not DB_AVAILABLE:
-            return None
         
         async with get_db() as db:
             user = await UserCRUD.get_by_username(db, username)
