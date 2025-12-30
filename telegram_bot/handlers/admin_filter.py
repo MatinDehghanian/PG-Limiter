@@ -3,11 +3,28 @@ Admin filter handlers for the Telegram bot.
 Commands for managing admin-based user filtering.
 """
 
-from telegram import Update
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes, ConversationHandler
 
 from telegram_bot.utils import check_admin, add_admin_to_config, read_json_file, write_json_file
+from telegram_bot.keyboards import create_back_to_main_keyboard
 from utils.read_config import read_config
+
+
+async def _send_response(update: Update, text: str, reply_markup=None):
+    """Send response handling both message and callback query contexts."""
+    if update.callback_query:
+        await update.callback_query.answer()
+        await update.callback_query.edit_message_text(
+            text=text,
+            parse_mode="HTML",
+            reply_markup=reply_markup
+        )
+    else:
+        await update.message.reply_html(
+            text=text,
+            reply_markup=reply_markup
+        )
 
 
 async def check_admin_privilege(update: Update):
@@ -19,8 +36,9 @@ async def check_admin_privilege(update: Update):
         await add_admin_to_config(update.effective_chat.id)
     admins = await check_admin()
     if update.effective_chat.id not in admins:
-        await update.message.reply_html(
-            text="Sorry, you do not have permission to execute this command."
+        await _send_response(
+            update,
+            "Sorry, you do not have permission to execute this command."
         )
         return ConversationHandler.END
 
@@ -73,10 +91,10 @@ async def admin_filter_status(update: Update, _context: ContextTypes.DEFAULT_TYP
             f"/admin_filter_remove - Remove admin"
         )
         
-        await update.message.reply_html(text=message)
+        await _send_response(update, message, reply_markup=create_back_to_main_keyboard())
         
     except Exception as e:
-        await update.message.reply_html(text=f"❌ Error: {str(e)}")
+        await _send_response(update, f"❌ Error: {str(e)}")
     
     return ConversationHandler.END
 
@@ -99,12 +117,10 @@ async def admin_filter_toggle(update: Update, _context: ContextTypes.DEFAULT_TYP
         await invalidate_config_cache()
         
         status = "✅ Enabled" if new_state else "❌ Disabled"
-        await update.message.reply_html(
-            text=f"👤 Admin filter is now: {status}"
-        )
+        await _send_response(update, f"👤 Admin filter is now: {status}")
         
     except Exception as e:
-        await update.message.reply_html(text=f"❌ Error: {str(e)}")
+        await _send_response(update, f"❌ Error: {str(e)}")
     
     return ConversationHandler.END
 
@@ -118,8 +134,9 @@ async def admin_filter_mode(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if context.args:
         mode = context.args[0].lower()
         if mode not in ["include", "exclude"]:
-            await update.message.reply_html(
-                text="❌ Invalid mode. Use <code>include</code> or <code>exclude</code>"
+            await _send_response(
+                update,
+                "❌ Invalid mode. Use <code>include</code> or <code>exclude</code>"
             )
             return ConversationHandler.END
         
@@ -134,21 +151,23 @@ async def admin_filter_mode(update: Update, context: ContextTypes.DEFAULT_TYPE):
             else:
                 desc = "Users of specified admins will be whitelisted"
             
-            await update.message.reply_html(
-                text=f"✅ Admin filter mode set to: <code>{mode}</code>\n{desc}"
+            await _send_response(
+                update,
+                f"✅ Admin filter mode set to: <code>{mode}</code>\n{desc}"
             )
             
         except Exception as e:
-            await update.message.reply_html(text=f"❌ Error: {str(e)}")
+            await _send_response(update, f"❌ Error: {str(e)}")
         
         return ConversationHandler.END
     
-    await update.message.reply_html(
-        text="👤 <b>Set Admin Filter Mode</b>\n\n"
-             "<code>/admin_filter_mode include</code>\n"
-             "  → Only users of specified admins are monitored\n\n"
-             "<code>/admin_filter_mode exclude</code>\n"
-             "  → Users of specified admins are whitelisted (not limited)"
+    await _send_response(
+        update,
+        "👤 <b>Set Admin Filter Mode</b>\n\n"
+        "<code>/admin_filter_mode include</code>\n"
+        "  → Only users of specified admins are monitored\n\n"
+        "<code>/admin_filter_mode exclude</code>\n"
+        "  → Users of specified admins are whitelisted (not limited)"
     )
     return ConversationHandler.END
 
@@ -176,20 +195,22 @@ async def admin_filter_set(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await save_config_value("admin_filter_usernames", ",".join(admin_usernames))
             await invalidate_config_cache()
             
-            await update.message.reply_html(
-                text=f"✅ Admin filter set to: <code>{admin_usernames}</code>"
+            await _send_response(
+                update,
+                f"✅ Admin filter set to: <code>{admin_usernames}</code>"
             )
             
         except Exception as e:
-            await update.message.reply_html(text=f"❌ Error: {str(e)}")
+            await _send_response(update, f"❌ Error: {str(e)}")
         
         return ConversationHandler.END
     
-    await update.message.reply_html(
-        text="👤 <b>Set Admin Filter Admins</b>\n\n"
-             "Usage: <code>/admin_filter_set admin1 admin2</code>\n"
-             "Or: <code>/admin_filter_set admin1,admin2</code>\n\n"
-             "Use /admin_filter_status to see available admins."
+    await _send_response(
+        update,
+        "👤 <b>Set Admin Filter Admins</b>\n\n"
+        "Usage: <code>/admin_filter_set admin1 admin2</code>\n"
+        "Or: <code>/admin_filter_set admin1,admin2</code>\n\n"
+        "Use /admin_filter_status to see available admins."
     )
     return ConversationHandler.END
 
@@ -201,9 +222,10 @@ async def admin_filter_add(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return check
     
     if not context.args:
-        await update.message.reply_html(
-            text="❌ Please provide an admin username.\n"
-                 "Example: <code>/admin_filter_add admin1</code>"
+        await _send_response(
+            update,
+            "❌ Please provide an admin username.\n"
+            "Example: <code>/admin_filter_add admin1</code>"
         )
         return ConversationHandler.END
     
@@ -217,8 +239,9 @@ async def admin_filter_add(update: Update, context: ContextTypes.DEFAULT_TYPE):
         current_admins = filter_config.get("admin_usernames", [])
         
         if admin_username in current_admins:
-            await update.message.reply_html(
-                text=f"ℹ️ Admin <code>{admin_username}</code> is already in the filter."
+            await _send_response(
+                update,
+                f"ℹ️ Admin <code>{admin_username}</code> is already in the filter."
             )
             return ConversationHandler.END
         
@@ -226,13 +249,14 @@ async def admin_filter_add(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await save_config_value("admin_filter_usernames", ",".join(current_admins))
         await invalidate_config_cache()
         
-        await update.message.reply_html(
-            text=f"✅ Added admin <code>{admin_username}</code> to filter.\n"
-                 f"Current admins: <code>{current_admins}</code>"
+        await _send_response(
+            update,
+            f"✅ Added admin <code>{admin_username}</code> to filter.\n"
+            f"Current admins: <code>{current_admins}</code>"
         )
         
     except Exception as e:
-        await update.message.reply_html(text=f"❌ Error: {str(e)}")
+        await _send_response(update, f"❌ Error: {str(e)}")
     
     return ConversationHandler.END
 
@@ -244,9 +268,10 @@ async def admin_filter_remove(update: Update, context: ContextTypes.DEFAULT_TYPE
         return check
     
     if not context.args:
-        await update.message.reply_html(
-            text="❌ Please provide an admin username.\n"
-                 "Example: <code>/admin_filter_remove admin1</code>"
+        await _send_response(
+            update,
+            "❌ Please provide an admin username.\n"
+            "Example: <code>/admin_filter_remove admin1</code>"
         )
         return ConversationHandler.END
     
@@ -260,8 +285,9 @@ async def admin_filter_remove(update: Update, context: ContextTypes.DEFAULT_TYPE
         current_admins = filter_config.get("admin_usernames", [])
         
         if admin_username not in current_admins:
-            await update.message.reply_html(
-                text=f"ℹ️ Admin <code>{admin_username}</code> is not in the filter."
+            await _send_response(
+                update,
+                f"ℹ️ Admin <code>{admin_username}</code> is not in the filter."
             )
             return ConversationHandler.END
         
@@ -269,12 +295,13 @@ async def admin_filter_remove(update: Update, context: ContextTypes.DEFAULT_TYPE
         await save_config_value("admin_filter_usernames", ",".join(current_admins))
         await invalidate_config_cache()
         
-        await update.message.reply_html(
-            text=f"✅ Removed admin <code>{admin_username}</code> from filter.\n"
-                 f"Remaining admins: <code>{current_admins}</code>"
+        await _send_response(
+            update,
+            f"✅ Removed admin <code>{admin_username}</code> from filter.\n"
+            f"Remaining admins: <code>{current_admins}</code>"
         )
         
     except Exception as e:
-        await update.message.reply_html(text=f"❌ Error: {str(e)}")
+        await _send_response(update, f"❌ Error: {str(e)}")
     
     return ConversationHandler.END

@@ -441,10 +441,12 @@ async def handle_enhanced_toggle_callback(query, _context: ContextTypes.DEFAULT_
     """Handle callback for enhanced details toggle."""
     try:
         await save_config_value("enhanced_details", str(enable).lower())
-        status = "enabled ✅" if enable else "disabled ❌"
+        status = "ON ✅" if enable else "OFF ❌"
         await query.edit_message_text(
-            text=f"✅ Enhanced details <b>{status}</b>",
-            reply_markup=create_back_to_main_keyboard(),
+            text=f"📋 <b>Enhanced Details</b>\n\nCurrently: <b>{status}</b>\n\n"
+                 + "• <b>ON</b>: Shows node names, IDs, and protocols\n"
+                 + "• <b>OFF</b>: Shows only IP addresses",
+            reply_markup=create_enhanced_details_keyboard(),
             parse_mode="HTML"
         )
     except Exception as e:
@@ -476,10 +478,12 @@ async def handle_single_ip_toggle_callback(query, _context: ContextTypes.DEFAULT
     """Handle callback for single IP toggle."""
     try:
         await save_config_value("show_single_ip_users", str(enable).lower())
-        status = "enabled ✅" if enable else "disabled ❌"
+        status = "ON ✅" if enable else "OFF ❌"
         await query.edit_message_text(
-            text=f"✅ Show single IP users <b>{status}</b>",
-            reply_markup=create_back_to_main_keyboard(),
+            text=f"1️⃣ <b>Single IP Users</b>\n\nCurrently: <b>{status}</b>\n\n"
+                 + "• <b>ON</b>: Include users with 1 IP in reports\n"
+                 + "• <b>OFF</b>: Only show users with multiple IPs",
+            reply_markup=create_single_ip_keyboard(),
             parse_mode="HTML"
         )
     except Exception as e:

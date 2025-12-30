@@ -123,6 +123,8 @@ class CallbackData:
     # Punishment system
     PUNISHMENT_MENU = "punishment_menu"
     PUNISHMENT_TOGGLE = "punishment_toggle"
+    PUNISHMENT_WINDOW = "punishment_window"
+    PUNISHMENT_STEPS = "punishment_steps"
     PUNISHMENT_WINDOW_24 = "punishment_window_24"
     PUNISHMENT_WINDOW_48 = "punishment_window_48"
     PUNISHMENT_WINDOW_72 = "punishment_window_72"

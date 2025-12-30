@@ -5,7 +5,7 @@ Includes functions for managing the smart punishment system.
 
 import json
 
-from telegram import Update
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
     ContextTypes,
     ConversationHandler,
@@ -13,7 +13,37 @@ from telegram.ext import (
 
 from telegram_bot.handlers.admin import check_admin_privilege
 from telegram_bot.utils import write_json_file
+from telegram_bot.keyboards import create_back_to_main_keyboard
 from utils.read_config import read_config
+
+
+async def _send_response(update: Update, text: str, reply_markup=None):
+    """
+    Helper to send response in both message and callback query contexts.
+    """
+    if update.callback_query:
+        await update.callback_query.answer()
+        await update.callback_query.message.reply_html(
+            text=text,
+            reply_markup=reply_markup
+        )
+    elif update.message:
+        await update.message.reply_html(
+            text=text,
+            reply_markup=reply_markup
+        )
+
+
+def create_punishment_menu_keyboard():
+    """Create punishment menu keyboard."""
+    from telegram_bot.constants import CallbackData
+    keyboard = [
+        [InlineKeyboardButton("🔄 Toggle On/Off", callback_data=CallbackData.PUNISHMENT_TOGGLE)],
+        [InlineKeyboardButton("⏰ Set Window", callback_data=CallbackData.PUNISHMENT_WINDOW)],
+        [InlineKeyboardButton("📋 Configure Steps", callback_data=CallbackData.PUNISHMENT_STEPS)],
+        [InlineKeyboardButton("« Back", callback_data=CallbackData.BACK_MAIN)],
+    ]
+    return InlineKeyboardMarkup(keyboard)
 
 
 async def punishment_status(update: Update, _context: ContextTypes.DEFAULT_TYPE):
@@ -51,10 +81,10 @@ async def punishment_status(update: Update, _context: ContextTypes.DEFAULT_TYPE)
             f"/clear_user_violations &lt;username&gt; - Clear history"
         )
 
-        await update.message.reply_html(text=message)
+        await _send_response(update, message, create_punishment_menu_keyboard())
 
     except Exception as e:
-        await update.message.reply_html(text=f"❌ Error: {str(e)}")
+        await _send_response(update, f"❌ Error: {str(e)}")
 
     return ConversationHandler.END
 
@@ -77,12 +107,14 @@ async def punishment_toggle(update: Update, _context: ContextTypes.DEFAULT_TYPE)
         await write_json_file(config_data)
 
         new_state = "✅ Enabled" if not current_state else "❌ Disabled"
-        await update.message.reply_html(
-            text=f"⚖️ Punishment system is now: {new_state}"
+        await _send_response(
+            update,
+            f"⚖️ Punishment system is now: {new_state}",
+            create_back_to_main_keyboard()
         )
 
     except Exception as e:
-        await update.message.reply_html(text=f"❌ Error: {str(e)}")
+        await _send_response(update, f"❌ Error: {str(e)}")
 
     return ConversationHandler.END
 
@@ -98,8 +130,9 @@ async def punishment_set_window(update: Update, context: ContextTypes.DEFAULT_TY
         try:
             hours = int(context.args[0])
             if hours < 1 or hours > 720:  # Max 30 days
-                await update.message.reply_html(
-                    text="❌ Invalid value. Hours must be between 1 and 720."
+                await _send_response(
+                    update,
+                    "❌ Invalid value. Hours must be between 1 and 720."
                 )
                 return ConversationHandler.END
 
@@ -110,19 +143,22 @@ async def punishment_set_window(update: Update, context: ContextTypes.DEFAULT_TY
                 config_data["punishment"]["window_hours"] = hours
 
             await write_json_file(config_data)
-            await update.message.reply_html(
-                text=f"✅ Punishment time window set to <code>{hours} hours</code>\n"
-                     f"Violations older than this will be forgotten."
+            await _send_response(
+                update,
+                f"✅ Punishment time window set to <code>{hours} hours</code>\n"
+                f"Violations older than this will be forgotten.",
+                create_back_to_main_keyboard()
             )
             return ConversationHandler.END
         except ValueError:
             pass
 
-    await update.message.reply_html(
-        text="⚖️ <b>Set Punishment Time Window</b>\n\n"
-             "Enter the number of hours for the violation window.\n"
-             "Violations older than this will not count.\n\n"
-             "Example: <code>/punishment_set_window 72</code> (3 days)"
+    await _send_response(
+        update,
+        "⚖️ <b>Set Punishment Time Window</b>\n\n"
+        "Enter the number of hours for the violation window.\n"
+        "Violations older than this will not count.\n\n"
+        "Example: <code>/punishment_set_window 72</code> (3 days)"
     )
     return ConversationHandler.END
 
@@ -170,26 +206,29 @@ async def punishment_set_steps(update: Update, context: ContextTypes.DEFAULT_TYP
                 else:
                     steps_display.append(f"  {i}. 🔒 {s['duration']} min disable")
 
-            await update.message.reply_html(
-                text=f"✅ Punishment steps updated:\n\n{chr(10).join(steps_display)}"
+            await _send_response(
+                update,
+                f"✅ Punishment steps updated:\n\n{chr(10).join(steps_display)}",
+                create_back_to_main_keyboard()
             )
             return ConversationHandler.END
         except (json.JSONDecodeError, ValueError) as e:
-            await update.message.reply_html(text=f"❌ Invalid format: {str(e)}")
+            await _send_response(update, f"❌ Invalid format: {str(e)}")
             return ConversationHandler.END
 
-    await update.message.reply_html(
-        text="⚖️ <b>Configure Punishment Steps</b>\n\n"
-             "Send steps as JSON array:\n"
-             '<code>/punishment_set_steps [{"type":"warning","duration":0},{"type":"disable","duration":15},{"type":"disable","duration":60},{"type":"disable","duration":0}]</code>\n\n'
-             "<b>Step types:</b>\n"
-             "• <code>warning</code> - Just warn, don't disable\n"
-             "• <code>disable</code> - Disable user\n\n"
-             "<b>Duration (minutes):</b>\n"
-             "• <code>0</code> = Unlimited (for warning: ignored, for disable: permanent)\n"
-             "• <code>15</code> = 15 minutes\n"
-             "• <code>60</code> = 1 hour\n"
-             "• <code>240</code> = 4 hours"
+    await _send_response(
+        update,
+        "⚖️ <b>Configure Punishment Steps</b>\n\n"
+        "Send steps as JSON array:\n"
+        '<code>/punishment_set_steps [{"type":"warning","duration":0},{"type":"disable","duration":15},{"type":"disable","duration":60},{"type":"disable","duration":0}]</code>\n\n'
+        "<b>Step types:</b>\n"
+        "• <code>warning</code> - Just warn, don't disable\n"
+        "• <code>disable</code> - Disable user\n\n"
+        "<b>Duration (minutes):</b>\n"
+        "• <code>0</code> = Unlimited (for warning: ignored, for disable: permanent)\n"
+        "• <code>15</code> = 15 minutes\n"
+        "• <code>60</code> = 1 hour\n"
+        "• <code>240</code> = 4 hours"
     )
     return ConversationHandler.END
 
@@ -201,9 +240,10 @@ async def user_violations(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return check
 
     if not context.args:
-        await update.message.reply_html(
-            text="❌ Please provide a username.\n"
-                 "Example: <code>/user_violations username</code>"
+        await _send_response(
+            update,
+            "❌ Please provide a username.\n"
+            "Example: <code>/user_violations username</code>"
         )
         return ConversationHandler.END
 
@@ -219,8 +259,9 @@ async def user_violations(update: Update, context: ContextTypes.DEFAULT_TYPE):
         status = system.get_user_status(username)
 
         if status["violation_count"] == 0:
-            await update.message.reply_html(
-                text=f"✅ User <code>{username}</code> has no violations in the last {status['window_hours']} hours."
+            await _send_response(
+                update,
+                f"✅ User <code>{username}</code> has no violations in the last {status['window_hours']} hours."
             )
             return ConversationHandler.END
 
@@ -239,10 +280,10 @@ async def user_violations(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"  {status['next_punishment']}"
         )
 
-        await update.message.reply_html(text=message)
+        await _send_response(update, message)
 
     except Exception as e:
-        await update.message.reply_html(text=f"❌ Error: {str(e)}")
+        await _send_response(update, f"❌ Error: {str(e)}")
 
     return ConversationHandler.END
 
@@ -254,10 +295,11 @@ async def clear_user_violations(update: Update, context: ContextTypes.DEFAULT_TY
         return check
 
     if not context.args:
-        await update.message.reply_html(
-            text="❌ Please provide a username.\n"
-                 "Example: <code>/clear_user_violations username</code>\n\n"
-                 "Use <code>/clear_user_violations ALL</code> to clear all history."
+        await _send_response(
+            update,
+            "❌ Please provide a username.\n"
+            "Example: <code>/clear_user_violations username</code>\n\n"
+            "Use <code>/clear_user_violations ALL</code> to clear all history."
         )
         return ConversationHandler.END
 
@@ -270,16 +312,18 @@ async def clear_user_violations(update: Update, context: ContextTypes.DEFAULT_TY
 
         if username.upper() == "ALL":
             await system.clear_all_history()
-            await update.message.reply_html(
-                text="✅ Cleared all violation history."
+            await _send_response(
+                update,
+                "✅ Cleared all violation history."
             )
         else:
             await system.clear_user_history(username)
-            await update.message.reply_html(
-                text=f"✅ Cleared violation history for <code>{username}</code>"
+            await _send_response(
+                update,
+                f"✅ Cleared violation history for <code>{username}</code>"
             )
 
     except Exception as e:
-        await update.message.reply_html(text=f"❌ Error: {str(e)}")
+        await _send_response(update, f"❌ Error: {str(e)}")
 
     return ConversationHandler.END

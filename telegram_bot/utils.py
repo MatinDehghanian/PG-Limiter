@@ -8,6 +8,7 @@ import os
 import sys
 
 from utils.types import PanelType
+from utils.read_config import invalidate_config_cache
 
 try:
     import httpx
@@ -280,6 +281,7 @@ async def write_country_code_json(country_code: str) -> None:
         async with get_db() as db:
             await ConfigCRUD.set(db, "country_code", country_code)
             await db.commit()
+            await invalidate_config_cache()
             return
     
     # Fallback to config.json
@@ -291,6 +293,7 @@ async def write_country_code_json(country_code: str) -> None:
         data["monitoring"] = {}
     data["monitoring"]["ip_location"] = country_code
     await write_json_file(data)
+    await invalidate_config_cache()
 
 
 async def add_except_user(except_user: str) -> str | None:
@@ -410,6 +413,7 @@ async def save_check_interval(interval: int) -> int:
         async with get_db() as db:
             await ConfigCRUD.set(db, "check_interval", interval)
             await db.commit()
+            await invalidate_config_cache()
             return interval
     
     # Fallback to config.json
@@ -419,9 +423,11 @@ async def save_check_interval(interval: int) -> int:
             data["monitoring"] = {}
         data["monitoring"]["check_interval"] = interval
         await write_json_file(data)
+        await invalidate_config_cache()
         return interval
     data = {"monitoring": {"check_interval": interval}}
     await write_json_file(data)
+    await invalidate_config_cache()
     return interval
 
 
@@ -434,6 +440,7 @@ async def save_time_to_active_users(time_val: int) -> int:
         async with get_db() as db:
             await ConfigCRUD.set(db, "time_to_active_users", time_val)
             await db.commit()
+            await invalidate_config_cache()
             return time_val
     
     # Fallback to config.json
@@ -443,7 +450,9 @@ async def save_time_to_active_users(time_val: int) -> int:
             data["monitoring"] = {}
         data["monitoring"]["time_to_active_users"] = time_val
         await write_json_file(data)
+        await invalidate_config_cache()
         return time_val
     data = {"monitoring": {"time_to_active_users": time_val}}
     await write_json_file(data)
+    await invalidate_config_cache()
     return time_val

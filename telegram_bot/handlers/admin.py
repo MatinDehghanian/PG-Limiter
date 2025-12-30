@@ -100,9 +100,9 @@ async def admins_list(update: Update, _context: ContextTypes.DEFAULT_TYPE):
     admins = await check_admin()
     if admins:
         admins_str = "\n- ".join(map(str, admins))
-        await update.message.reply_html(text=f"Admins: \n- {admins_str}")
+        await _send_response(update, f"Admins: \n- {admins_str}")
     else:
-        await update.message.reply_html(text="No admins found!")
+        await _send_response(update, "No admins found!")
     return ConversationHandler.END
 
 

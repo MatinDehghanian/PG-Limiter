@@ -602,6 +602,14 @@ async def callback_query_handler(update: Update, context: ContextTypes.DEFAULT_T
         await punishment_toggle(update, context)
         return
     
+    if data == CallbackData.PUNISHMENT_WINDOW:
+        await punishment_set_window(update, context)
+        return
+    
+    if data == CallbackData.PUNISHMENT_STEPS:
+        await punishment_set_steps(update, context)
+        return
+    
     # Group filter callbacks
     if data == CallbackData.GROUP_FILTER_MENU:
         await group_filter_status(update, context)

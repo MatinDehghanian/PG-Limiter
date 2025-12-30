@@ -203,7 +203,28 @@ async def read_config(check_required_elements: bool = False) -> Dict[str, Any]:
     # Merge DB config (dynamic settings changeable via Telegram)
     db_config = db_data.get("db_config", {})
     
-    # Dynamic settings from DB (with ENV fallbacks)
+    # Dynamic settings from DB (override ENV values if set in DB)
+    if "check_interval" in db_config:
+        try:
+            config["check_interval"] = int(db_config["check_interval"])
+        except (ValueError, TypeError):
+            pass
+    
+    if "time_to_active_users" in db_config:
+        try:
+            config["time_to_active_users"] = int(db_config["time_to_active_users"])
+        except (ValueError, TypeError):
+            pass
+    
+    if "country_code" in db_config:
+        config["country_code"] = db_config["country_code"]
+    
+    if "general_limit" in db_config:
+        try:
+            config["limits"]["general"] = int(db_config["general_limit"])
+        except (ValueError, TypeError):
+            pass
+    
     config["disable_method"] = db_config.get("disable_method", "status")
     config["disabled_group_id"] = db_config.get("disabled_group_id")
     if config["disabled_group_id"]:
@@ -291,6 +312,7 @@ async def save_config_value(key: str, value: Any) -> bool:
     try:
         async with get_db() as session:
             await ConfigCRUD.set(session, key, str(value))
+        await invalidate_config_cache()
         return True
     except Exception:
         return False
@@ -304,6 +326,7 @@ async def delete_config_value(key: str) -> bool:
     try:
         async with get_db() as session:
             await ConfigCRUD.delete(session, key)
+        await invalidate_config_cache()
         return True
     except Exception:
         return False

@@ -916,7 +916,7 @@ async def disable_user_with_punishment(panel_data: PanelType, username: UserType
     data = await read_config()
     punishment, step_index, violation_count = await get_punishment_for_user(username.name, data)
     
-    users_logger.debug(f"⚖️ Punishment for {username.name}: step={step_index}, violations={violation_count}, type={punishment.action_type if punishment else 'none'}")
+    users_logger.debug(f"⚖️ Punishment for {username.name}: step={step_index}, violations={violation_count}, type={punishment.step_type if punishment else 'none'}")
     
     punishment_enabled = data.get("punishment", {}).get("enabled", True)
     
