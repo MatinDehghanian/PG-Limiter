@@ -733,7 +733,9 @@ application.add_handler(CommandHandler("help", help_command))
 # Callback and message handlers
 application.add_handler(CallbackQueryHandler(callback_query_handler))
 application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, text_message_handler))
-application.add_handler(MessageHandler(filters.Document.ALL, document_message_handler))
+
+# NOTE: Document handler is registered AFTER all ConversationHandlers
+# to allow ConversationHandlers to handle documents first
 
 # Admin management
 application.add_handler(
@@ -876,3 +878,5 @@ application.add_handler(CommandHandler("admin_filter_mode", admin_filter_mode))
 application.add_handler(CommandHandler("admin_filter_set", admin_filter_set))
 application.add_handler(CommandHandler("admin_filter_add", admin_filter_add))
 application.add_handler(CommandHandler("admin_filter_remove", admin_filter_remove))
+# Fallback document handler (must be after all ConversationHandlers)
+application.add_handler(MessageHandler(filters.Document.ALL, document_message_handler))
