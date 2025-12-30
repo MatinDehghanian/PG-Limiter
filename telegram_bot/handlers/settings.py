@@ -621,19 +621,25 @@ def create_disable_group_keyboard(groups: list, current_group_id: int = None):
 
 async def handle_disable_by_group_callback(query, _context: ContextTypes.DEFAULT_TYPE):
     """Handle callback for selecting group to use for disabled users."""
+    from telegram.error import BadRequest
+    
     groups, config_data = await _get_groups_from_panel()
     
     if not groups:
-        await query.edit_message_text(
-            text="📁 <b>Disable by Group</b>\n\n"
-                 "❌ Could not load groups from panel.\n"
-                 "Please check your panel connection.",
-            reply_markup=InlineKeyboardMarkup([
-                [InlineKeyboardButton("🔄 Retry", callback_data=CallbackData.DISABLE_BY_GROUP)],
-                [InlineKeyboardButton("« Back", callback_data=CallbackData.DISABLE_METHOD_MENU)]
-            ]),
-            parse_mode="HTML"
-        )
+        try:
+            await query.edit_message_text(
+                text="📁 <b>Disable by Group</b>\n\n"
+                     "❌ Could not load groups from panel.\n"
+                     "Please check your panel connection.",
+                reply_markup=InlineKeyboardMarkup([
+                    [InlineKeyboardButton("🔄 Retry", callback_data=CallbackData.DISABLE_BY_GROUP)],
+                    [InlineKeyboardButton("« Back", callback_data=CallbackData.DISABLE_METHOD_MENU)]
+                ]),
+                parse_mode="HTML"
+            )
+        except BadRequest as e:
+            if "message is not modified" not in str(e).lower():
+                raise
         return
     
     # Get current disabled group ID
@@ -646,13 +652,17 @@ async def handle_disable_by_group_callback(query, _context: ContextTypes.DEFAULT
     
     keyboard = create_disable_group_keyboard(groups, current_group_id)
     
-    await query.edit_message_text(
-        text="📁 <b>Disable by Group</b>\n\n"
-             "Select the group where disabled users will be moved:\n\n"
-             "<i>When a user exceeds their IP limit, they will be moved to this group.</i>",
-        reply_markup=keyboard,
-        parse_mode="HTML"
-    )
+    try:
+        await query.edit_message_text(
+            text="📁 <b>Disable by Group</b>\n\n"
+                 "Select the group where disabled users will be moved:\n\n"
+                 "<i>When a user exceeds their IP limit, they will be moved to this group.</i>",
+            reply_markup=keyboard,
+            parse_mode="HTML"
+        )
+    except BadRequest as e:
+        if "message is not modified" not in str(e).lower():
+            raise
 
 
 async def handle_select_disabled_group_callback(query, _context: ContextTypes.DEFAULT_TYPE, group_id: int):

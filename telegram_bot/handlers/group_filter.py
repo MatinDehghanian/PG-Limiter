@@ -344,19 +344,25 @@ def create_group_filter_keyboard(config_data: dict, groups: list):
 
 async def handle_group_filter_menu_callback(query, _context: ContextTypes.DEFAULT_TYPE):
     """Handle callback for group filter menu with glass buttons."""
+    from telegram.error import BadRequest
+    
     groups, config_data = await _get_groups_from_panel()
     
     if not groups:
-        await query.edit_message_text(
-            text="🔍 <b>Group Filter</b>\n\n"
-                 "❌ Could not load groups from panel.\n"
-                 "Please check your panel connection.",
-            reply_markup=InlineKeyboardMarkup([
-                [InlineKeyboardButton("🔄 Retry", callback_data=CallbackData.GROUP_FILTER_MENU)],
-                [InlineKeyboardButton("« Back", callback_data=CallbackData.SETTINGS_MENU)]
-            ]),
-            parse_mode="HTML"
-        )
+        try:
+            await query.edit_message_text(
+                text="🔍 <b>Group Filter</b>\n\n"
+                     "❌ Could not load groups from panel.\n"
+                     "Please check your panel connection.",
+                reply_markup=InlineKeyboardMarkup([
+                    [InlineKeyboardButton("🔄 Retry", callback_data=CallbackData.GROUP_FILTER_MENU)],
+                    [InlineKeyboardButton("« Back", callback_data=CallbackData.SETTINGS_MENU)]
+                ]),
+                parse_mode="HTML"
+            )
+        except BadRequest as e:
+            if "message is not modified" not in str(e).lower():
+                raise
         return
     
     keyboard, mode_desc = create_group_filter_keyboard(config_data, groups)
@@ -364,14 +370,18 @@ async def handle_group_filter_menu_callback(query, _context: ContextTypes.DEFAUL
     enabled = filter_config.get("enabled", False)
     status = "✅ Enabled" if enabled else "❌ Disabled"
     
-    await query.edit_message_text(
-        text=f"🔍 <b>Group Filter</b>\n\n"
-             f"<b>Status:</b> {status}\n"
-             f"<b>Mode:</b> {mode_desc}\n\n"
-             f"Select groups to include/exclude:",
-        reply_markup=keyboard,
-        parse_mode="HTML"
-    )
+    try:
+        await query.edit_message_text(
+            text=f"🔍 <b>Group Filter</b>\n\n"
+                 f"<b>Status:</b> {status}\n"
+                 f"<b>Mode:</b> {mode_desc}\n\n"
+                 f"Select groups to include/exclude:",
+            reply_markup=keyboard,
+            parse_mode="HTML"
+        )
+    except BadRequest as e:
+        if "message is not modified" not in str(e).lower():
+            raise
 
 
 async def handle_group_filter_toggle_callback(query, _context: ContextTypes.DEFAULT_TYPE):

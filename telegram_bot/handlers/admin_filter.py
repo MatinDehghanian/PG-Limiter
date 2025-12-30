@@ -389,19 +389,25 @@ def create_admin_filter_keyboard(config_data: dict, admins: list):
 
 async def handle_admin_filter_menu_callback(query, _context: ContextTypes.DEFAULT_TYPE):
     """Handle callback for admin filter menu with glass buttons."""
+    from telegram.error import BadRequest
+    
     admins, config_data = await _get_admins_from_panel()
     
     if not admins:
-        await query.edit_message_text(
-            text="👤 <b>Admin Filter</b>\n\n"
-                 "❌ Could not load admins from panel.\n"
-                 "Please check your panel connection.",
-            reply_markup=InlineKeyboardMarkup([
-                [InlineKeyboardButton("🔄 Retry", callback_data=CallbackData.ADMIN_FILTER_MENU)],
-                [InlineKeyboardButton("« Back", callback_data=CallbackData.SETTINGS_MENU)]
-            ]),
-            parse_mode="HTML"
-        )
+        try:
+            await query.edit_message_text(
+                text="👤 <b>Admin Filter</b>\n\n"
+                     "❌ Could not load admins from panel.\n"
+                     "Please check your panel connection.",
+                reply_markup=InlineKeyboardMarkup([
+                    [InlineKeyboardButton("🔄 Retry", callback_data=CallbackData.ADMIN_FILTER_MENU)],
+                    [InlineKeyboardButton("« Back", callback_data=CallbackData.SETTINGS_MENU)]
+                ]),
+                parse_mode="HTML"
+            )
+        except BadRequest as e:
+            if "message is not modified" not in str(e).lower():
+                raise
         return
     
     keyboard, mode_desc = create_admin_filter_keyboard(config_data, admins)
@@ -409,14 +415,18 @@ async def handle_admin_filter_menu_callback(query, _context: ContextTypes.DEFAUL
     enabled = filter_config.get("enabled", False)
     status = "✅ Enabled" if enabled else "❌ Disabled"
     
-    await query.edit_message_text(
-        text=f"👤 <b>Admin Filter</b>\n\n"
-             f"<b>Status:</b> {status}\n"
-             f"<b>Mode:</b> {mode_desc}\n\n"
-             f"Select admins to include/exclude:",
-        reply_markup=keyboard,
-        parse_mode="HTML"
-    )
+    try:
+        await query.edit_message_text(
+            text=f"👤 <b>Admin Filter</b>\n\n"
+                 f"<b>Status:</b> {status}\n"
+                 f"<b>Mode:</b> {mode_desc}\n\n"
+                 f"Select admins to include/exclude:",
+            reply_markup=keyboard,
+            parse_mode="HTML"
+        )
+    except BadRequest as e:
+        if "message is not modified" not in str(e).lower():
+            raise
 
 
 async def handle_admin_filter_toggle_callback(query, _context: ContextTypes.DEFAULT_TYPE):
