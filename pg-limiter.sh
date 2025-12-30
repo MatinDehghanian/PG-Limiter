@@ -207,6 +207,7 @@ services:
       - "8080:8080"
     volumes:
       - /var/lib/pg-limiter:/var/lib/pg-limiter
+      - /etc/opt/pg-limiter:/etc/opt/pg-limiter:ro
     environment:
       - TZ=${TZ:-UTC}
       - REDIS_URL=redis://redis:6379

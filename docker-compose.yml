@@ -13,6 +13,8 @@ services:
     volumes:
       # Persistent storage for database and logs
       - /var/lib/pg-limiter:/var/lib/pg-limiter
+      # Config directory (read-only, for backup functionality)
+      - /etc/opt/pg-limiter:/etc/opt/pg-limiter:ro
     environment:
       - TZ=${TZ:-UTC}
       - REDIS_URL=redis://redis:6379

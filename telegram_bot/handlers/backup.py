@@ -52,17 +52,25 @@ async def send_backup(update: Update, _context: ContextTypes.DEFAULT_TYPE):
         zip_path = os.path.join(temp_dir, zip_name)
         
         with zipfile.ZipFile(zip_path, 'w', zipfile.ZIP_DEFLATED) as zipf:
-            # Check standard Docker paths first
+            # Check Docker mounted config directory (read-only mount)
             docker_config_dir = "/etc/opt/pg-limiter"
+            config_found = False
             if os.path.exists(docker_config_dir):
                 for filename in os.listdir(docker_config_dir):
                     filepath = os.path.join(docker_config_dir, filename)
                     if os.path.isfile(filepath):
                         zipf.write(filepath, f"config/{filename}")
+                        config_found = True
+                        backup_logger.info(f"Added config file: {filename}")
             
-            # Also check local .env
+            # Also check local .env if not found in config dir
             if os.path.exists(".env"):
                 zipf.write(".env", "config/.env")
+                config_found = True
+                backup_logger.info("Added local .env file")
+            
+            if not config_found:
+                backup_logger.warning("No config files found to backup")
             
             # Add data files from /var/lib/pg-limiter/ (or local data/)
             data_dirs = [
