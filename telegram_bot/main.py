@@ -510,8 +510,17 @@ application.add_handler(
 application.add_handler(
     ConversationHandler(
         entry_points=[CommandHandler("migrate_backup", migrate_backup_start)],
-        states={MIGRATE_WAITING_FILE: [MessageHandler(filters.Document.ALL, migrate_backup_handler)]},
-        fallbacks=[CommandHandler("cancel", migrate_backup_cancel)],
+        states={
+            MIGRATE_WAITING_FILE: [
+                MessageHandler(filters.Document.ALL, migrate_backup_handler),
+            ],
+        },
+        fallbacks=[
+            CommandHandler("cancel", migrate_backup_cancel),
+            MessageHandler(filters.ALL & ~filters.COMMAND, migrate_backup_handler),
+        ],
+        per_user=True,
+        per_chat=True,
     )
 )
 

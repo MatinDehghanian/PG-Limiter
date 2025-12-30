@@ -278,8 +278,11 @@ async def restore_config_handler(update: Update, context: ContextTypes.DEFAULT_T
 
 async def migrate_backup_start(update: Update, _context: ContextTypes.DEFAULT_TYPE):
     """Start the backup migration process."""
+    backup_logger.info(f"migrate_backup_start called by user {update.effective_user.id}")
+    
     check = await check_admin_privilege(update)
     if check is not None:
+        backup_logger.warning(f"User {update.effective_user.id} not admin for migrate_backup")
         return check
     
     message = update.message or update.callback_query.message
@@ -295,13 +298,17 @@ async def migrate_backup_start(update: Update, _context: ContextTypes.DEFAULT_TY
         "📤 <b>Please send your JSON file now</b>\n\n"
         "<i>Send /cancel to abort</i>"
     )
+    backup_logger.info("Waiting for user to send JSON file...")
     return MIGRATE_WAITING_FILE
 
 
 async def migrate_backup_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handle the uploaded JSON file and migrate it to database."""
+    backup_logger.info(f"migrate_backup_handler called, document: {update.message.document}")
+    
     try:
         if not update.message.document:
+            backup_logger.warning("No document in message")
             await update.message.reply_html(
                 "❌ Please send a JSON file.\n"
                 "Use /migrate_backup to try again."
@@ -309,6 +316,7 @@ async def migrate_backup_handler(update: Update, context: ContextTypes.DEFAULT_T
             return ConversationHandler.END
         
         file_name = update.message.document.file_name
+        backup_logger.info(f"Received file: {file_name}")
         
         if not file_name.endswith('.json'):
             await update.message.reply_html(
@@ -322,10 +330,13 @@ async def migrate_backup_handler(update: Update, context: ContextTypes.DEFAULT_T
         # Download the file
         file = await update.message.document.get_file()
         file_content = await file.download_as_bytearray()
+        backup_logger.info(f"Downloaded file, size: {len(file_content)} bytes")
         
         try:
             data = json.loads(file_content.decode('utf-8'))
+            backup_logger.info(f"Parsed JSON, keys: {list(data.keys())[:10]}")
         except json.JSONDecodeError as e:
+            backup_logger.error(f"JSON decode error: {e}")
             await update.message.reply_html(
                 f"❌ Invalid JSON format:\n<code>{str(e)}</code>"
             )
@@ -341,55 +352,64 @@ async def migrate_backup_handler(update: Update, context: ContextTypes.DEFAULT_T
             "errors": [],
         }
         
-        from db import get_db
-        from db.crud import (
-            ConfigCRUD,
-            UserLimitCRUD,
-            ExceptUserCRUD,
-            DisabledUserCRUD,
-            ViolationHistoryCRUD,
-        )
+        try:
+            from db import get_db
+            from db.crud import (
+                ConfigCRUD,
+                UserLimitCRUD,
+                ExceptUserCRUD,
+                DisabledUserCRUD,
+                ViolationHistoryCRUD,
+            )
+            backup_logger.info("Database imports successful")
+        except Exception as import_err:
+            backup_logger.error(f"Failed to import database modules: {import_err}")
+            await update.message.reply_html(
+                f"❌ Database import error:\n<code>{str(import_err)}</code>"
+            )
+            return ConversationHandler.END
         
-        async with get_db() as db:
-            # ─────────────────────────────────────────────────────────
-            # Detect file type and migrate accordingly
-            # ─────────────────────────────────────────────────────────
-            
-            # Check if it's a config.json file
-            if "panel" in data or "limits" in data or "timing" in data:
-                backup_logger.info("Detected config.json format")
+        try:
+            async with get_db() as db:
+                # ─────────────────────────────────────────────────────────
+                # Detect file type and migrate accordingly
+                # ─────────────────────────────────────────────────────────
                 
-                # Migrate panel settings (for reference only - actual auth is from .env)
-                if "panel" in data:
-                    await ConfigCRUD.set(db, "panel_backup", data["panel"])
-                    stats["config_items"] += 1
-                
-                # Migrate limits
-                if "limits" in data:
-                    limits = data["limits"]
+                # Check if it's a config.json file
+                if "panel" in data or "limits" in data or "timing" in data:
+                    backup_logger.info("Detected config.json format")
                     
-                    # General limit
-                    if "general" in limits:
-                        await ConfigCRUD.set(db, "general_limit", limits["general"])
+                    # Migrate panel settings (for reference only - actual auth is from .env)
+                    if "panel" in data:
+                        await ConfigCRUD.set(db, "panel_backup", data["panel"])
                         stats["config_items"] += 1
                     
-                    # Special limits
-                    special = limits.get("special", {})
-                    for username, limit in special.items():
-                        try:
-                            await UserLimitCRUD.set_limit(db, username, int(limit))
-                            stats["special_limits"] += 1
-                        except Exception as e:
-                            stats["errors"].append(f"Special limit {username}: {e}")
-                    
-                    # Except users from limits
-                    except_list = limits.get("except_users", [])
-                    for username in except_list:
-                        try:
-                            await ExceptUserCRUD.add(db, username, "Migrated from config.json")
-                            stats["except_users"] += 1
-                        except Exception as e:
-                            stats["errors"].append(f"Except user {username}: {e}")
+                    # Migrate limits
+                    if "limits" in data:
+                        limits = data["limits"]
+                        
+                        # General limit
+                        if "general" in limits:
+                            await ConfigCRUD.set(db, "general_limit", limits["general"])
+                            stats["config_items"] += 1
+                        
+                        # Special limits
+                        special = limits.get("special", {})
+                        for username, limit in special.items():
+                            try:
+                                await UserLimitCRUD.set_limit(db, username, int(limit))
+                                stats["special_limits"] += 1
+                            except Exception as e:
+                                stats["errors"].append(f"Special limit {username}: {e}")
+                        
+                        # Except users from limits
+                        except_list = limits.get("except_users", [])
+                        for username in except_list:
+                            try:
+                                await ExceptUserCRUD.add(db, username, "Migrated from config.json")
+                                stats["except_users"] += 1
+                            except Exception as e:
+                                stats["errors"].append(f"Except user {username}: {e}")
                 
                 # Root-level except_users
                 if "except_users" in data and isinstance(data["except_users"], list):
@@ -501,6 +521,12 @@ async def migrate_backup_handler(update: Update, context: ContextTypes.DEFAULT_T
                                 stats["violations"] += 1
                             except Exception as e:
                                 stats["errors"].append(f"Violation {username}: {e}")
+        except Exception as db_err:
+            backup_logger.error(f"Database error during migration: {db_err}")
+            await update.message.reply_html(
+                f"❌ Database error:\n<code>{str(db_err)}</code>"
+            )
+            return ConversationHandler.END
         
         # Build result message
         total = (
