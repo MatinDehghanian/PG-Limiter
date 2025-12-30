@@ -570,3 +570,121 @@ async def handle_ipinfo_token_input(update: Update, context: ContextTypes.DEFAUL
             reply_markup=create_back_to_main_keyboard()
         )
     context.user_data["waiting_for"] = None
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# DISABLE METHOD HANDLERS
+# ═══════════════════════════════════════════════════════════════════════════════
+
+
+async def _get_groups_from_panel():
+    """Helper to get groups from panel."""
+    try:
+        from utils.user_group_filter import get_all_groups
+        from utils.types import PanelType
+        
+        config_data = await read_config()
+        panel_config = config_data.get("panel", {})
+        panel_data = PanelType(
+            panel_config.get("username", ""),
+            panel_config.get("password", ""),
+            panel_config.get("domain", "")
+        )
+        
+        groups = await get_all_groups(panel_data)
+        return groups, config_data
+    except Exception as e:
+        return [], {}
+
+
+def create_disable_group_keyboard(groups: list, current_group_id: int = None):
+    """Create keyboard for selecting disabled group."""
+    keyboard = []
+    
+    for group in groups:
+        gid = group.get("id", 0)
+        name = group.get("name", "Unknown")
+        is_selected = gid == current_group_id
+        prefix = "✅" if is_selected else "⬜"
+        
+        keyboard.append([
+            InlineKeyboardButton(
+                f"{prefix} {name} (ID: {gid})",
+                callback_data=f"select_disabled_group:{gid}"
+            )
+        ])
+    
+    keyboard.append([InlineKeyboardButton("🔄 Refresh", callback_data=CallbackData.DISABLE_BY_GROUP)])
+    keyboard.append([InlineKeyboardButton("« Back to Disable Method", callback_data=CallbackData.DISABLE_METHOD_MENU)])
+    
+    return InlineKeyboardMarkup(keyboard)
+
+
+async def handle_disable_by_group_callback(query, _context: ContextTypes.DEFAULT_TYPE):
+    """Handle callback for selecting group to use for disabled users."""
+    groups, config_data = await _get_groups_from_panel()
+    
+    if not groups:
+        await query.edit_message_text(
+            text="📁 <b>Disable by Group</b>\n\n"
+                 "❌ Could not load groups from panel.\n"
+                 "Please check your panel connection.",
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton("🔄 Retry", callback_data=CallbackData.DISABLE_BY_GROUP)],
+                [InlineKeyboardButton("« Back", callback_data=CallbackData.DISABLE_METHOD_MENU)]
+            ]),
+            parse_mode="HTML"
+        )
+        return
+    
+    # Get current disabled group ID
+    current_group_id = config_data.get("disabled_group_id")
+    if current_group_id:
+        try:
+            current_group_id = int(current_group_id)
+        except (ValueError, TypeError):
+            current_group_id = None
+    
+    keyboard = create_disable_group_keyboard(groups, current_group_id)
+    
+    await query.edit_message_text(
+        text="📁 <b>Disable by Group</b>\n\n"
+             "Select the group where disabled users will be moved:\n\n"
+             "<i>When a user exceeds their IP limit, they will be moved to this group.</i>",
+        reply_markup=keyboard,
+        parse_mode="HTML"
+    )
+
+
+async def handle_select_disabled_group_callback(query, _context: ContextTypes.DEFAULT_TYPE, group_id: int):
+    """Handle callback for selecting specific disabled group."""
+    try:
+        await save_config_value("disable_method", "group")
+        await save_config_value("disabled_group_id", str(group_id))
+        
+        # Get group name for confirmation
+        groups, _ = await _get_groups_from_panel()
+        group_name = "Unknown"
+        for group in groups:
+            if group.get("id") == group_id:
+                group_name = group.get("name", "Unknown")
+                break
+        
+        await query.edit_message_text(
+            text=f"✅ <b>Disable Method Updated</b>\n\n"
+                 f"Method: <b>By Group</b>\n"
+                 f"Group: <b>{group_name}</b> (ID: {group_id})\n\n"
+                 f"Users exceeding IP limits will be moved to this group.",
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton("« Back to Settings", callback_data=CallbackData.SETTINGS_MENU)]
+            ]),
+            parse_mode="HTML"
+        )
+        
+    except Exception as e:
+        await query.edit_message_text(
+            text=f"❌ Error: {str(e)}",
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton("« Back", callback_data=CallbackData.DISABLE_BY_GROUP)]
+            ]),
+            parse_mode="HTML"
+        )

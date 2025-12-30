@@ -119,6 +119,8 @@ from telegram_bot.handlers.settings import (
     handle_enhanced_toggle_callback,
     handle_ipinfo_callback,
     handle_ipinfo_token_input,
+    handle_disable_by_group_callback,
+    handle_select_disabled_group_callback,
 )
 from telegram_bot.handlers.monitoring import (
     monitoring_status,
@@ -158,6 +160,10 @@ from telegram_bot.handlers.group_filter import (
     group_filter_set,
     group_filter_add,
     group_filter_remove,
+    handle_group_filter_menu_callback,
+    handle_group_filter_toggle_callback,
+    handle_group_filter_mode_callback,
+    handle_group_filter_toggle_group_callback,
 )
 from telegram_bot.handlers.admin_filter import (
     admin_filter_status,
@@ -166,6 +172,10 @@ from telegram_bot.handlers.admin_filter import (
     admin_filter_set,
     admin_filter_add,
     admin_filter_remove,
+    handle_admin_filter_menu_callback,
+    handle_admin_filter_toggle_callback,
+    handle_admin_filter_mode_callback,
+    handle_admin_filter_toggle_admin_callback,
 )
 
 # Import utilities
@@ -527,13 +537,13 @@ async def callback_query_handler(update: Update, context: ContextTypes.DEFAULT_T
         return
     
     if data == CallbackData.DISABLE_BY_GROUP:
-        await save_config_value("disable_method", "group")
-        await query.edit_message_text(
-            text="✅ Disable method set to <b>By Group</b>\n\n"
-                 "Make sure you have configured the disabled group in your panel.",
-            reply_markup=create_back_to_main_keyboard(),
-            parse_mode="HTML"
-        )
+        await handle_disable_by_group_callback(query, context)
+        return
+    
+    # Handle select disabled group callbacks
+    if data.startswith("select_disabled_group:"):
+        group_id = int(data.split(":")[1])
+        await handle_select_disabled_group_callback(query, context, group_id)
         return
     
     # Back to settings callback
@@ -564,20 +574,48 @@ async def callback_query_handler(update: Update, context: ContextTypes.DEFAULT_T
     
     # Group filter callbacks
     if data == CallbackData.GROUP_FILTER_MENU:
-        await group_filter_status(update, context)
+        await handle_group_filter_menu_callback(query, context)
         return
     
     if data == CallbackData.GROUP_FILTER_TOGGLE:
-        await group_filter_toggle(update, context)
+        await handle_group_filter_toggle_callback(query, context)
+        return
+    
+    if data == CallbackData.GROUP_FILTER_MODE_INCLUDE:
+        await handle_group_filter_mode_callback(query, context, "include")
+        return
+    
+    if data == CallbackData.GROUP_FILTER_MODE_EXCLUDE:
+        await handle_group_filter_mode_callback(query, context, "exclude")
+        return
+    
+    # Handle group filter toggle group callbacks
+    if data.startswith("gf_toggle_group:"):
+        group_id = int(data.split(":")[1])
+        await handle_group_filter_toggle_group_callback(query, context, group_id)
         return
     
     # Admin filter callbacks
     if data == CallbackData.ADMIN_FILTER_MENU:
-        await admin_filter_status(update, context)
+        await handle_admin_filter_menu_callback(query, context)
         return
     
     if data == CallbackData.ADMIN_FILTER_TOGGLE:
-        await admin_filter_toggle(update, context)
+        await handle_admin_filter_toggle_callback(query, context)
+        return
+    
+    if data == CallbackData.ADMIN_FILTER_MODE_INCLUDE:
+        await handle_admin_filter_mode_callback(query, context, "include")
+        return
+    
+    if data == CallbackData.ADMIN_FILTER_MODE_EXCLUDE:
+        await handle_admin_filter_mode_callback(query, context, "exclude")
+        return
+    
+    # Handle admin filter toggle admin callbacks
+    if data.startswith("af_toggle_admin:"):
+        username = data.split(":")[1]
+        await handle_admin_filter_toggle_admin_callback(query, context, username)
         return
     
     # Handle dynamic callbacks

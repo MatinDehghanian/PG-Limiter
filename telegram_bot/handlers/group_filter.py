@@ -3,7 +3,7 @@ Group filter handlers for the Telegram bot.
 Includes functions for managing group-based user filtering.
 """
 
-from telegram import Update
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
     ContextTypes,
     ConversationHandler,
@@ -12,6 +12,7 @@ from telegram.ext import (
 from telegram_bot.handlers.admin import check_admin_privilege
 from telegram_bot.utils import write_json_file
 from telegram_bot.keyboards import create_back_to_main_keyboard
+from telegram_bot.constants import CallbackData
 from utils.read_config import read_config
 
 
@@ -269,6 +270,188 @@ async def group_filter_add(update: Update, context: ContextTypes.DEFAULT_TYPE):
     return ConversationHandler.END
 
 
+# ═══════════════════════════════════════════════════════════════════════════════
+# CALLBACK HANDLERS FOR GLASS BUTTON UI
+# ═══════════════════════════════════════════════════════════════════════════════
+
+
+async def _get_groups_from_panel():
+    """Helper to get groups from panel."""
+    try:
+        from utils.user_group_filter import get_all_groups
+        from utils.types import PanelType
+        
+        config_data = await read_config()
+        panel_config = config_data.get("panel", {})
+        panel_data = PanelType(
+            panel_config.get("username", ""),
+            panel_config.get("password", ""),
+            panel_config.get("domain", "")
+        )
+        
+        groups = await get_all_groups(panel_data)
+        return groups, config_data
+    except Exception as e:
+        return [], {}
+
+
+def create_group_filter_keyboard(config_data: dict, groups: list):
+    """Create keyboard for group filter with mode and group selection."""
+    filter_config = config_data.get("group_filter", {})
+    enabled = filter_config.get("enabled", False)
+    mode = filter_config.get("mode", "include")
+    selected_ids = filter_config.get("group_ids", [])
+    
+    keyboard = []
+    
+    # Enable/Disable toggle
+    toggle_text = "🔴 Disable Filter" if enabled else "🟢 Enable Filter"
+    keyboard.append([InlineKeyboardButton(toggle_text, callback_data=CallbackData.GROUP_FILTER_TOGGLE)])
+    
+    # Mode selection
+    include_text = "✅ Include" if mode == "include" else "⬜ Include"
+    exclude_text = "✅ Exclude" if mode == "exclude" else "⬜ Exclude"
+    keyboard.append([
+        InlineKeyboardButton(include_text, callback_data=CallbackData.GROUP_FILTER_MODE_INCLUDE),
+        InlineKeyboardButton(exclude_text, callback_data=CallbackData.GROUP_FILTER_MODE_EXCLUDE),
+    ])
+    
+    # Mode description
+    if mode == "include":
+        mode_desc = "Only users in selected groups will be monitored"
+    else:
+        mode_desc = "Users in selected groups will be whitelisted"
+    
+    # Group selection buttons
+    for group in groups:
+        gid = group.get("id", 0)
+        name = group.get("name", "Unknown")
+        is_selected = gid in selected_ids
+        prefix = "✅" if is_selected else "⬜"
+        keyboard.append([
+            InlineKeyboardButton(
+                f"{prefix} {name} (ID: {gid})",
+                callback_data=f"gf_toggle_group:{gid}"
+            )
+        ])
+    
+    # Back button
+    keyboard.append([InlineKeyboardButton("🔄 Refresh", callback_data=CallbackData.GROUP_FILTER_MENU)])
+    keyboard.append([InlineKeyboardButton("« Back to Settings", callback_data=CallbackData.SETTINGS_MENU)])
+    
+    return InlineKeyboardMarkup(keyboard), mode_desc
+
+
+async def handle_group_filter_menu_callback(query, _context: ContextTypes.DEFAULT_TYPE):
+    """Handle callback for group filter menu with glass buttons."""
+    groups, config_data = await _get_groups_from_panel()
+    
+    if not groups:
+        await query.edit_message_text(
+            text="🔍 <b>Group Filter</b>\n\n"
+                 "❌ Could not load groups from panel.\n"
+                 "Please check your panel connection.",
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton("🔄 Retry", callback_data=CallbackData.GROUP_FILTER_MENU)],
+                [InlineKeyboardButton("« Back", callback_data=CallbackData.SETTINGS_MENU)]
+            ]),
+            parse_mode="HTML"
+        )
+        return
+    
+    keyboard, mode_desc = create_group_filter_keyboard(config_data, groups)
+    filter_config = config_data.get("group_filter", {})
+    enabled = filter_config.get("enabled", False)
+    status = "✅ Enabled" if enabled else "❌ Disabled"
+    
+    await query.edit_message_text(
+        text=f"🔍 <b>Group Filter</b>\n\n"
+             f"<b>Status:</b> {status}\n"
+             f"<b>Mode:</b> {mode_desc}\n\n"
+             f"Select groups to include/exclude:",
+        reply_markup=keyboard,
+        parse_mode="HTML"
+    )
+
+
+async def handle_group_filter_toggle_callback(query, _context: ContextTypes.DEFAULT_TYPE):
+    """Handle toggle callback for group filter."""
+    try:
+        config_data = await read_config()
+        
+        if "group_filter" not in config_data:
+            config_data["group_filter"] = {"enabled": True, "mode": "include", "group_ids": []}
+        else:
+            config_data["group_filter"]["enabled"] = not config_data["group_filter"].get("enabled", False)
+        
+        await write_json_file(config_data)
+        
+        # Refresh the menu
+        await handle_group_filter_menu_callback(query, _context)
+        
+    except Exception as e:
+        await query.edit_message_text(
+            text=f"❌ Error: {str(e)}",
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton("« Back", callback_data=CallbackData.GROUP_FILTER_MENU)]
+            ]),
+            parse_mode="HTML"
+        )
+
+
+async def handle_group_filter_mode_callback(query, _context: ContextTypes.DEFAULT_TYPE, mode: str):
+    """Handle mode selection callback for group filter."""
+    try:
+        config_data = await read_config()
+        
+        if "group_filter" not in config_data:
+            config_data["group_filter"] = {"enabled": False, "mode": mode, "group_ids": []}
+        else:
+            config_data["group_filter"]["mode"] = mode
+        
+        await write_json_file(config_data)
+        
+        # Refresh the menu
+        await handle_group_filter_menu_callback(query, _context)
+        
+    except Exception as e:
+        await query.edit_message_text(
+            text=f"❌ Error: {str(e)}",
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton("« Back", callback_data=CallbackData.GROUP_FILTER_MENU)]
+            ]),
+            parse_mode="HTML"
+        )
+
+
+async def handle_group_filter_toggle_group_callback(query, _context: ContextTypes.DEFAULT_TYPE, group_id: int):
+    """Handle group toggle callback for group filter."""
+    try:
+        config_data = await read_config()
+        
+        if "group_filter" not in config_data:
+            config_data["group_filter"] = {"enabled": False, "mode": "include", "group_ids": [group_id]}
+        else:
+            current_ids = config_data["group_filter"].get("group_ids", [])
+            if group_id in current_ids:
+                current_ids.remove(group_id)
+            else:
+                current_ids.append(group_id)
+            config_data["group_filter"]["group_ids"] = current_ids
+        
+        await write_json_file(config_data)
+        
+        # Refresh the menu
+        await handle_group_filter_menu_callback(query, _context)
+        
+    except Exception as e:
+        await query.edit_message_text(
+            text=f"❌ Error: {str(e)}",
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton("« Back", callback_data=CallbackData.GROUP_FILTER_MENU)]
+            ]),
+            parse_mode="HTML"
+        )
 async def group_filter_remove(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Remove a group ID from the filter."""
     check = await check_admin_privilege(update)

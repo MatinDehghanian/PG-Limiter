@@ -8,6 +8,7 @@ from telegram.ext import ContextTypes, ConversationHandler
 
 from telegram_bot.utils import check_admin, add_admin_to_config, read_json_file, write_json_file
 from telegram_bot.keyboards import create_back_to_main_keyboard
+from telegram_bot.constants import CallbackData
 from utils.read_config import read_config
 
 
@@ -305,3 +306,190 @@ async def admin_filter_remove(update: Update, context: ContextTypes.DEFAULT_TYPE
         await _send_response(update, f"❌ Error: {str(e)}")
     
     return ConversationHandler.END
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# CALLBACK HANDLERS FOR GLASS BUTTON UI
+# ═══════════════════════════════════════════════════════════════════════════════
+
+
+async def _get_admins_from_panel():
+    """Helper to get admins from panel."""
+    try:
+        from utils.admin_filter import get_all_admins
+        from utils.types import PanelType
+        
+        config_data = await read_config()
+        panel_config = config_data.get("panel", {})
+        panel_data = PanelType(
+            panel_config.get("username", ""),
+            panel_config.get("password", ""),
+            panel_config.get("domain", "")
+        )
+        
+        admins = await get_all_admins(panel_data)
+        return admins, config_data
+    except Exception as e:
+        return [], {}
+
+
+def create_admin_filter_keyboard(config_data: dict, admins: list):
+    """Create keyboard for admin filter with mode and admin selection."""
+    filter_config = config_data.get("admin_filter", {})
+    enabled = filter_config.get("enabled", False)
+    mode = filter_config.get("mode", "include")
+    selected_admins = filter_config.get("admin_usernames", [])
+    
+    keyboard = []
+    
+    # Enable/Disable toggle
+    toggle_text = "🔴 Disable Filter" if enabled else "🟢 Enable Filter"
+    keyboard.append([InlineKeyboardButton(toggle_text, callback_data=CallbackData.ADMIN_FILTER_TOGGLE)])
+    
+    # Mode selection
+    include_text = "✅ Include" if mode == "include" else "⬜ Include"
+    exclude_text = "✅ Exclude" if mode == "exclude" else "⬜ Exclude"
+    keyboard.append([
+        InlineKeyboardButton(include_text, callback_data=CallbackData.ADMIN_FILTER_MODE_INCLUDE),
+        InlineKeyboardButton(exclude_text, callback_data=CallbackData.ADMIN_FILTER_MODE_EXCLUDE),
+    ])
+    
+    # Mode description
+    if mode == "include":
+        mode_desc = "Only users of selected admins will be monitored"
+    else:
+        mode_desc = "Users of selected admins will be whitelisted"
+    
+    # Admin selection buttons
+    for admin in admins:
+        username = admin.get("username", "Unknown")
+        is_sudo = admin.get("is_sudo", False)
+        is_disabled = admin.get("is_disabled", False)
+        is_selected = username in selected_admins
+        
+        prefix = "✅" if is_selected else "⬜"
+        suffix = ""
+        if is_sudo:
+            suffix += " 👑"
+        if is_disabled:
+            suffix += " 🔒"
+        
+        keyboard.append([
+            InlineKeyboardButton(
+                f"{prefix} {username}{suffix}",
+                callback_data=f"af_toggle_admin:{username}"
+            )
+        ])
+    
+    # Back button
+    keyboard.append([InlineKeyboardButton("🔄 Refresh", callback_data=CallbackData.ADMIN_FILTER_MENU)])
+    keyboard.append([InlineKeyboardButton("« Back to Settings", callback_data=CallbackData.SETTINGS_MENU)])
+    
+    return InlineKeyboardMarkup(keyboard), mode_desc
+
+
+async def handle_admin_filter_menu_callback(query, _context: ContextTypes.DEFAULT_TYPE):
+    """Handle callback for admin filter menu with glass buttons."""
+    admins, config_data = await _get_admins_from_panel()
+    
+    if not admins:
+        await query.edit_message_text(
+            text="👤 <b>Admin Filter</b>\n\n"
+                 "❌ Could not load admins from panel.\n"
+                 "Please check your panel connection.",
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton("🔄 Retry", callback_data=CallbackData.ADMIN_FILTER_MENU)],
+                [InlineKeyboardButton("« Back", callback_data=CallbackData.SETTINGS_MENU)]
+            ]),
+            parse_mode="HTML"
+        )
+        return
+    
+    keyboard, mode_desc = create_admin_filter_keyboard(config_data, admins)
+    filter_config = config_data.get("admin_filter", {})
+    enabled = filter_config.get("enabled", False)
+    status = "✅ Enabled" if enabled else "❌ Disabled"
+    
+    await query.edit_message_text(
+        text=f"👤 <b>Admin Filter</b>\n\n"
+             f"<b>Status:</b> {status}\n"
+             f"<b>Mode:</b> {mode_desc}\n\n"
+             f"Select admins to include/exclude:",
+        reply_markup=keyboard,
+        parse_mode="HTML"
+    )
+
+
+async def handle_admin_filter_toggle_callback(query, _context: ContextTypes.DEFAULT_TYPE):
+    """Handle toggle callback for admin filter."""
+    try:
+        from utils.read_config import save_config_value, invalidate_config_cache
+        
+        config_data = await read_config()
+        filter_config = config_data.get("admin_filter", {})
+        current_state = filter_config.get("enabled", False)
+        
+        await save_config_value("admin_filter_enabled", "true" if not current_state else "false")
+        await invalidate_config_cache()
+        
+        # Refresh the menu
+        await handle_admin_filter_menu_callback(query, _context)
+        
+    except Exception as e:
+        await query.edit_message_text(
+            text=f"❌ Error: {str(e)}",
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton("« Back", callback_data=CallbackData.ADMIN_FILTER_MENU)]
+            ]),
+            parse_mode="HTML"
+        )
+
+
+async def handle_admin_filter_mode_callback(query, _context: ContextTypes.DEFAULT_TYPE, mode: str):
+    """Handle mode selection callback for admin filter."""
+    try:
+        from utils.read_config import save_config_value, invalidate_config_cache
+        
+        await save_config_value("admin_filter_mode", mode)
+        await invalidate_config_cache()
+        
+        # Refresh the menu
+        await handle_admin_filter_menu_callback(query, _context)
+        
+    except Exception as e:
+        await query.edit_message_text(
+            text=f"❌ Error: {str(e)}",
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton("« Back", callback_data=CallbackData.ADMIN_FILTER_MENU)]
+            ]),
+            parse_mode="HTML"
+        )
+
+
+async def handle_admin_filter_toggle_admin_callback(query, _context: ContextTypes.DEFAULT_TYPE, admin_username: str):
+    """Handle admin toggle callback for admin filter."""
+    try:
+        from utils.read_config import save_config_value, invalidate_config_cache
+        
+        config_data = await read_config()
+        filter_config = config_data.get("admin_filter", {})
+        current_admins = filter_config.get("admin_usernames", [])
+        
+        if admin_username in current_admins:
+            current_admins.remove(admin_username)
+        else:
+            current_admins.append(admin_username)
+        
+        await save_config_value("admin_filter_usernames", ",".join(current_admins))
+        await invalidate_config_cache()
+        
+        # Refresh the menu
+        await handle_admin_filter_menu_callback(query, _context)
+        
+    except Exception as e:
+        await query.edit_message_text(
+            text=f"❌ Error: {str(e)}",
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton("« Back", callback_data=CallbackData.ADMIN_FILTER_MENU)]
+            ]),
+            parse_mode="HTML"
+        )
