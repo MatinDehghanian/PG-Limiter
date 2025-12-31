@@ -155,7 +155,7 @@ async def sync_users_to_database(panel_data: PanelType) -> tuple[int, int, int]:
         users = await get_all_users_with_details(panel_data)
         
         if not users:
-            sync_logger.warning("No users fetched from panel")
+            sync_logger.warning("⚠️ No users fetched from panel - skipping sync entirely")
             return (0, 0, 0)
         
         sync_logger.info(f"📥 Processing {len(users)} users...")
@@ -163,19 +163,15 @@ async def sync_users_to_database(panel_data: PanelType) -> tuple[int, int, int]:
         # Build set of usernames from panel
         panel_usernames = {u.get("username") for u in users if u.get("username")}
         
+        if not panel_usernames:
+            sync_logger.warning("⚠️ No valid usernames in panel response - skipping sync")
+            return (0, 0, 0)
+        
         async with get_db() as db:
             # Get existing usernames in local DB
             local_usernames = await UserCRUD.get_all_usernames(db)
             
-            # Find users that exist in local DB but not in panel (deleted from panel)
-            deleted_usernames = list(local_usernames - panel_usernames)
-            
-            # Delete users that were removed from panel
-            if deleted_usernames:
-                sync_logger.info(f"🗑️ Found {len(deleted_usernames)} users deleted from panel")
-                deleted = await UserCRUD.delete_many(db, deleted_usernames)
-            
-            # Sync users from panel
+            # Sync users from panel FIRST (before any deletion logic)
             for user_data in users:
                 try:
                     username = user_data.get("username")
@@ -246,6 +242,40 @@ async def sync_users_to_database(panel_data: PanelType) -> tuple[int, int, int]:
                 except Exception as e:
                     sync_logger.error(f"Error syncing user {user_data.get('username', '?')}: {e}")
                     errors += 1
+            
+            # SAFETY CHECKS before deleting users
+            # Only delete if sync was mostly successful (less than 10% errors)
+            # and we received a reasonable number of users from panel
+            potentially_deleted = list(local_usernames - panel_usernames)
+            
+            if potentially_deleted:
+                # Safety check 1: Don't delete if there were too many sync errors
+                error_rate = errors / max(len(users), 1)
+                if error_rate > 0.1:  # More than 10% errors
+                    sync_logger.warning(
+                        f"⚠️ Skipping deletion: too many sync errors ({errors}/{len(users)} = {error_rate:.1%})"
+                    )
+                # Safety check 2: Don't delete if panel returned significantly fewer users
+                # This could indicate a pagination or API issue
+                elif len(local_usernames) > 0 and len(panel_usernames) < len(local_usernames) * 0.5:
+                    sync_logger.warning(
+                        f"⚠️ Skipping deletion: panel returned too few users "
+                        f"({len(panel_usernames)} vs {len(local_usernames)} local). "
+                        f"This may indicate an API issue."
+                    )
+                # Safety check 3: Don't delete more than 20% of users in one sync
+                elif len(potentially_deleted) > len(local_usernames) * 0.2:
+                    sync_logger.warning(
+                        f"⚠️ Skipping deletion: too many users to delete "
+                        f"({len(potentially_deleted)}/{len(local_usernames)} = "
+                        f"{len(potentially_deleted)/len(local_usernames):.1%}). "
+                        f"Manual review recommended."
+                    )
+                else:
+                    # All safety checks passed - proceed with deletion
+                    sync_logger.info(f"🗑️ Deleting {len(potentially_deleted)} users removed from panel")
+                    deleted_usernames = potentially_deleted
+                    deleted = await UserCRUD.delete_many(db, deleted_usernames)
             
             await db.commit()
         
