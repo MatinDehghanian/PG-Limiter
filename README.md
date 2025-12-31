@@ -2,7 +2,7 @@
   <img src="https://img.shields.io/badge/Python-3.10+-blue?logo=python&logoColor=white" alt="Python">
   <img src="https://img.shields.io/badge/License-AGPL--3.0-green" alt="License">
   <img src="https://img.shields.io/badge/Platform-Linux%20%7C%20macOS-lightgrey" alt="Platform">
-  <img src="https://img.shields.io/badge/Version-0.7.3-orange" alt="Version">
+  <img src="https://img.shields.io/badge/Version-0.7.5-orange" alt="Version">
 </p>
 
 <h1 align="center">🛡️ PG-Limiter</h1>
