@@ -46,15 +46,20 @@ async def invalidate_nodes_cache():
     nodes_logger.info("🖥️ Nodes cache invalidated")
 
 
-async def get_nodes(panel_data: PanelType, force_refresh: bool = False) -> list[NodeType] | ValueError:
+async def get_nodes(
+    panel_data: PanelType,
+    force_refresh: bool = False,
+    enabled_only: bool = True,
+) -> list[NodeType] | ValueError:
     """
     Get the IDs of all nodes from the panel API.
     Results are cached for 1 hour in Redis (or in-memory fallback).
 
     Args:
         panel_data (PanelType): A PanelType object containing
-        the username, password, and domain for the panel API.
-        force_refresh (bool): If True, bypass cache and fetch fresh nodes
+            the username, password, and domain for the panel API.
+        force_refresh (bool): If True, bypass cache and fetch fresh nodes.
+        enabled_only (bool): If True (default), only fetch enabled nodes.
 
     Returns:
         list[NodeType]: The list of IDs and other information of all nodes.
@@ -108,7 +113,12 @@ async def get_nodes(panel_data: PanelType, force_refresh: bool = False) -> list[
         }
         all_nodes = []
         for scheme in ["https", "http"]:
-            url = f"{scheme}://{panel_data.panel_domain}/api/nodes"
+            # Build URL with optional enabled filter
+            base_url = f"{scheme}://{panel_data.panel_domain}/api/nodes"
+            if enabled_only:
+                url = f"{base_url}?enabled=true"
+            else:
+                url = base_url
             start_time = time.perf_counter()
             try:
                 async with httpx.AsyncClient(verify=False) as client:

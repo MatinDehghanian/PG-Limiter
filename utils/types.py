@@ -101,14 +101,22 @@ class DeviceInfo:
 @dataclass
 class UserType:
     """
-    Represents a user type.
+    Represents a user type with panel API fields.
 
     Attributes:
-        name (str): The name of the user.
-        status (str | None): The status of the user. None if no status is provided.
-        ip (list[str] | list): List of IP address of the user.
+        name (str): The username.
+        status (UserStatus | None): The user status (local). None if no status is provided.
+        ip (list[str] | list): List of IP addresses of the user.
         isp_info (dict | None): ISP information for the user's IPs.
         device_info (DeviceInfo): Device and connection information for the user.
+        panel_status (str | None): Status from panel API (active/disabled/limited/expired/on_hold).
+        data_limit (int | None): Data limit in bytes from panel.
+        used_traffic (int | None): Used traffic in bytes from panel.
+        lifetime_used_traffic (int | None): Lifetime used traffic in bytes.
+        expire (str | int | None): Expiration datetime/timestamp from panel.
+        group_ids (list[int] | None): Group IDs the user belongs to.
+        online_at (str | None): Last online datetime from panel.
+        admin_username (str | None): Admin username who owns this user.
     """
 
     name: str
@@ -116,6 +124,15 @@ class UserType:
     ip: list[str] | list = field(default_factory=list)
     isp_info: dict | None = None
     device_info: DeviceInfo = field(default_factory=DeviceInfo)
+    # Panel API fields
+    panel_status: str | None = None
+    data_limit: int | None = None
+    used_traffic: int | None = None
+    lifetime_used_traffic: int | None = None
+    expire: str | int | None = None
+    group_ids: list[int] | None = None
+    online_at: str | None = None
+    admin_username: str | None = None
 
 
 @dataclass

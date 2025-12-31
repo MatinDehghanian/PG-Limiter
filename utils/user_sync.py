@@ -17,12 +17,14 @@ _last_sync_time: Optional[datetime] = None
 _sync_in_progress: bool = False
 
 
-async def get_all_users_with_details(panel_data: PanelType) -> list[dict]:
+async def get_all_users_with_details(panel_data: PanelType, status: str | None = "active") -> list[dict]:
     """
     Fetch all users from panel with their full details (groups, owner, etc.).
     
     Args:
         panel_data: Panel connection data
+        status: Filter by user status (active/disabled/limited/expired/on_hold).
+                Default is "active" for efficiency. Use None to fetch ALL users.
         
     Returns:
         List of user dictionaries with full details
@@ -34,7 +36,8 @@ async def get_all_users_with_details(panel_data: PanelType) -> list[dict]:
     import random
     import traceback
     
-    sync_logger.info("📋 Fetching all users with details from panel...")
+    status_str = f" (status={status})" if status else " (all statuses)"
+    sync_logger.info(f"📋 Fetching users with details from panel{status_str}...")
     max_attempts = 3
     all_users = []
     limit = 100
@@ -73,8 +76,14 @@ async def get_all_users_with_details(panel_data: PanelType) -> list[dict]:
                 page_success = False
                 last_error = None
                 for scheme in ["https", "http"]:
-                    url = f"{scheme}://{panel_data.panel_domain}/api/users?offset={offset}&limit={limit}"
-                    sync_logger.info(f"📡 Fetching page {page_count + 1}: {scheme}://... offset={offset}...")
+                    # Build URL with optional status filter (default: active for efficiency)
+                    base_url = f"{scheme}://{panel_data.panel_domain}/api/users?offset={offset}&limit={limit}"
+                    if status:
+                        url = f"{base_url}&status={status}"
+                    else:
+                        url = base_url
+                    filter_str = f" (status={status})" if status else ""
+                    sync_logger.info(f"📡 Fetching page {page_count + 1}: {scheme}://... offset={offset}{filter_str}...")
                     start_time = time.perf_counter()
                     try:
                         sync_logger.info("🔌 Creating HTTP client...")
@@ -521,8 +530,8 @@ async def get_pending_deletions(panel_data: PanelType) -> dict:
     }
     
     try:
-        # Get users from panel
-        users = await get_all_users_with_details(panel_data)
+        # Get ALL users from panel (not just active) for proper deletion comparison
+        users = await get_all_users_with_details(panel_data, status=None)
         panel_usernames = {u.get("username") for u in users if u.get("username")}
         result["panel_count"] = len(panel_usernames)
         

@@ -73,9 +73,23 @@ async def all_user(panel_data: PanelType) -> list[UserType] | ValueError:
                     users_logger.error(f"Response missing 'users' key. Keys: {list(user_inform.keys())}")
                     continue
                 
-                users = [
-                    UserType(name=user["username"]) for user in user_inform["users"]
-                ]
+                # Extract users with all available panel API fields
+                users = []
+                for user_data in user_inform["users"]:
+                    admin_info = user_data.get("admin")
+                    admin_username = admin_info.get("username") if isinstance(admin_info, dict) else None
+                    user = UserType(
+                        name=user_data["username"],
+                        panel_status=user_data.get("status"),
+                        data_limit=user_data.get("data_limit"),
+                        used_traffic=user_data.get("used_traffic"),
+                        lifetime_used_traffic=user_data.get("lifetime_used_traffic"),
+                        expire=user_data.get("expire"),
+                        group_ids=user_data.get("group_ids"),
+                        online_at=user_data.get("online_at"),
+                        admin_username=admin_username,
+                    )
+                    users.append(user)
                 users_logger.info(f"📋 Fetched {len(users)} users [{elapsed:.0f}ms]")
                 return users
             except SSLError:
@@ -116,21 +130,41 @@ async def all_user(panel_data: PanelType) -> list[UserType] | ValueError:
     raise ValueError(message)
 
 
-async def get_all_panel_users(panel_data: PanelType) -> set[str] | ValueError:
+async def get_all_panel_users(
+    panel_data: PanelType,
+    status: str | None = None,
+    admin: list[str] | None = None,
+    group: list[int] | None = None,
+    search: str | None = None,
+) -> set[str] | ValueError:
     """
-    Get all usernames from the panel API.
+    Get all usernames from the panel API with optional filtering.
 
     Args:
         panel_data (PanelType): A PanelType object containing
-        the username, password, and domain for the panel API.
+            the username, password, and domain for the panel API.
+        status (str | None): Filter by user status (active/disabled/limited/expired/on_hold).
+        admin (list[str] | None): Filter by admin username(s).
+        group (list[int] | None): Filter by group ID(s).
+        search (str | None): Search query for usernames.
 
     Returns:
-        set[str]: A set of all usernames in the panel.
+        set[str]: A set of all usernames matching the filters.
 
     Raises:
         ValueError: If the function fails to get users from the API.
     """
-    users_logger.debug("📋 Fetching all panel users with pagination...")
+    filter_desc = []
+    if status:
+        filter_desc.append(f"status={status}")
+    if admin:
+        filter_desc.append(f"admin={admin}")
+    if group:
+        filter_desc.append(f"group={group}")
+    if search:
+        filter_desc.append(f"search={search}")
+    filter_str = f" ({', '.join(filter_desc)})" if filter_desc else ""
+    users_logger.debug(f"📋 Fetching panel users with pagination{filter_str}...")
     max_attempts = 5
     all_usernames = set()
     limit = 100
@@ -152,7 +186,20 @@ async def get_all_panel_users(panel_data: PanelType) -> set[str] | ValueError:
         while pagination_success:
             page_success = False
             for scheme in ["https", "http"]:
-                url = f"{scheme}://{panel_data.panel_domain}/api/users?offset={offset}&limit={limit}"
+                # Build query parameters
+                params = [f"offset={offset}", f"limit={limit}"]
+                if status:
+                    params.append(f"status={status}")
+                if admin:
+                    for a in admin:
+                        params.append(f"admin={a}")
+                if group:
+                    for g in group:
+                        params.append(f"group={g}")
+                if search:
+                    params.append(f"search={search}")
+                query_string = "&".join(params)
+                url = f"{scheme}://{panel_data.panel_domain}/api/users?{query_string}"
                 start_time = time.perf_counter()
                 try:
                     async with httpx.AsyncClient(verify=False) as client:
