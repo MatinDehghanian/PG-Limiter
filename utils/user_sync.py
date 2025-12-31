@@ -460,7 +460,13 @@ async def run_user_sync_loop(panel_data: PanelType):
     
     sync_logger.info("🚀 Starting user sync background loop...")
     
+    # Delay initial sync to allow other startup operations to complete
+    # This reduces memory pressure during startup
+    sync_logger.info("⏳ Waiting 30 seconds before initial user sync...")
+    await asyncio.sleep(30)
+    
     # Initial sync
+    sync_logger.info("🔄 Running initial user sync...")
     await sync_users_to_database(panel_data)
     
     while True:

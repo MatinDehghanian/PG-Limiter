@@ -18,12 +18,8 @@ services:
     environment:
       - TZ=${TZ:-UTC}
       - REDIS_URL=redis://redis:6379
-    deploy:
-      resources:
-        limits:
-          memory: 512M
-        reservations:
-          memory: 128M
+    mem_limit: 512m
+    memswap_limit: 512m
   
   redis:
     image: redis:7-alpine
