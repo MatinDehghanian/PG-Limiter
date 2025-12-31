@@ -61,7 +61,7 @@ async def main():
     if REDIS_AVAILABLE:
         try:
             cache = await get_cache()
-            if cache.is_connected():
+            if cache.is_connected:
                 main_logger.info("✓ Redis cache connected")
             else:
                 main_logger.info("⚠ Redis not available, using in-memory cache fallback")

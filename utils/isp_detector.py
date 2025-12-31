@@ -280,6 +280,7 @@ class ISPDetector:
         """
         Get ISP information for multiple IP addresses efficiently.
         Uses semaphore to limit concurrent requests and prevent rate limiting.
+        Uses subnet-based caching to reduce API calls.
         
         Args:
             ips (list[str]): List of IP addresses
@@ -290,25 +291,88 @@ class ISPDetector:
         if not ips:
             return {}
         
-        # Filter out already cached IPs
-        uncached_ips = [ip for ip in ips if ip not in self.cache]
+        # Group IPs by subnet to optimize database lookups
+        from db.crud.subnet_isp import SubnetISPCRUD
+        subnet_to_ips = {}
+        for ip in ips:
+            subnet = SubnetISPCRUD.get_subnet_from_ip(ip)
+            if subnet not in subnet_to_ips:
+                subnet_to_ips[subnet] = []
+            subnet_to_ips[subnet].append(ip)
         
-        logger.info(f"📊 ISP lookup: {len(ips)} total, {len(ips) - len(uncached_ips)} cached, {len(uncached_ips)} to fetch")
+        logger.info(f"📊 ISP lookup: {len(ips)} IPs across {len(subnet_to_ips)} subnets")
+        
+        # Check database cache for all subnets first
+        if self._db_cache:
+            from db.database import get_db
+            cached_subnets = 0
+            async with get_db() as db:
+                for subnet in list(subnet_to_ips.keys()):
+                    try:
+                        cached = await SubnetISPCRUD.get_by_subnet(db, subnet)
+                        if cached:
+                            cached_subnets += 1
+                            # Apply cached info to all IPs in this subnet
+                            isp_info = {
+                                "ip": "",
+                                "isp": cached.isp or "Unknown ISP",
+                                "country": cached.country or "Unknown",
+                                "city": cached.city or "Unknown",
+                                "region": cached.region or "Unknown"
+                            }
+                            for ip in subnet_to_ips[subnet]:
+                                isp_info_copy = isp_info.copy()
+                                isp_info_copy["ip"] = ip
+                                self.cache[ip] = isp_info_copy
+                            # Remove this subnet from lookup list
+                            del subnet_to_ips[subnet]
+                    except Exception as e:
+                        logger.warning(f"Failed to check subnet cache for {subnet}: {e}")
+            
+            if cached_subnets > 0:
+                logger.info(f"✅ Found {cached_subnets} subnets in cache, {len(subnet_to_ips)} need API lookup")
+        
+        # Filter out already cached IPs
+        uncached_ips = []
+        for subnet_ips in subnet_to_ips.values():
+            for ip in subnet_ips:
+                if ip not in self.cache:
+                    uncached_ips.append(ip)
         
         if uncached_ips:
-            # Limit concurrent requests to avoid overwhelming the API
-            semaphore = asyncio.Semaphore(5)
+            logger.info(f"🔍 Fetching {len(uncached_ips)} uncached IPs from API...")
+            
+            # ip-api.com free tier: 45 requests/minute
+            # Use smaller batches with delays to respect rate limit
+            semaphore = asyncio.Semaphore(3)  # Reduced from 5 to 3 concurrent
             
             async def bounded_get_isp_info(ip: str):
                 async with semaphore:
                     try:
-                        return await self.get_isp_info(ip)
+                        result = await self.get_isp_info(ip)
+                        # Save to database cache
+                        if result.get("isp") != "Unknown ISP" and self._db_cache:
+                            try:
+                                from db.database import get_db
+                                async with get_db() as db:
+                                    await SubnetISPCRUD.cache_isp(
+                                        db, ip,
+                                        isp=result.get("isp", "Unknown ISP"),
+                                        country=result.get("country"),
+                                        city=result.get("city"),
+                                        region=result.get("region")
+                                    )
+                            except Exception as e:
+                                logger.warning(f"Failed to cache ISP for {ip}: {e}")
+                        return result
                     except Exception as e:
                         logger.error(f"Error getting ISP for {ip}: {e}")
                         return {"ip": ip, "isp": "Unknown ISP", "country": "Unknown", "city": "Unknown", "region": "Unknown"}
             
-            # Process in batches of 10 to be gentle on API
-            batch_size = 10
+            # Process in smaller batches with longer delays to respect rate limits
+            # 45 req/min = 1 request per 1.33 seconds
+            # Use batches of 5 with 2 second delay = ~25 req/min (safe margin)
+            batch_size = 5
             total_batches = (len(uncached_ips) + batch_size - 1) // batch_size
             
             for i in range(0, len(uncached_ips), batch_size):
@@ -322,14 +386,17 @@ class ISPDetector:
                         asyncio.gather(*tasks, return_exceptions=True),
                         timeout=30  # 30 second timeout per batch
                     )
+                    logger.info(f"✅ Batch {batch_num}/{total_batches} complete")
                 except asyncio.TimeoutError:
                     logger.warning(f"⚠️ ISP batch {batch_num} timed out after 30s")
                 
-                # Small delay between batches if we have more
+                # Delay between batches to respect rate limits (2 seconds)
                 if i + batch_size < len(uncached_ips):
-                    await asyncio.sleep(0.5)
+                    await asyncio.sleep(2.0)
             
             logger.info(f"✅ ISP lookup complete: processed {len(uncached_ips)} IPs")
+        else:
+            logger.info("✅ All IPs found in cache")
         
         # Build result from cache
         def default_info(ip_addr):
