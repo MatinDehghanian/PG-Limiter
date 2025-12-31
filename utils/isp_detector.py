@@ -39,7 +39,8 @@ class ISPDetector:
             use_db_cache (bool): If True, use database-backed subnet cache for persistence
         """
         self.token = token
-        self.use_fallback_only = use_fallback_only
+        # Auto-enable fallback if no token provided (ipinfo.io rate limits quickly without token)
+        self.use_fallback_only = use_fallback_only or (not token)
         self.use_db_cache = use_db_cache and DB_AVAILABLE
         self.cache = {}  # Simple cache to avoid repeated API calls
         self.rate_limit_delay = 1  # 1 second delay between requests
@@ -50,12 +51,10 @@ class ISPDetector:
         
         if self.use_db_cache:
             logger.info("ISPDetector initialized with database-backed subnet cache")
-        if use_fallback_only:
-            logger.info("ISPDetector initialized with ip-api.com only (fallback mode)")
+        if self.use_fallback_only:
+            logger.info("ISPDetector using ip-api.com (fallback mode - no token configured)")
         elif token:
             logger.info(f"ISPDetector initialized with token: {token[:20]}...")
-        else:
-            logger.warning("ISPDetector initialized WITHOUT token - ISP detection may be limited")
     
     async def _get_session(self):
         """Get or create the shared aiohttp session"""
@@ -288,8 +287,13 @@ class ISPDetector:
         Returns:
             Dict[str, Dict[str, str]]: Dictionary mapping IP to ISP info
         """
+        if not ips:
+            return {}
+        
         # Filter out already cached IPs
         uncached_ips = [ip for ip in ips if ip not in self.cache]
+        
+        logger.info(f"📊 ISP lookup: {len(ips)} total, {len(ips) - len(uncached_ips)} cached, {len(uncached_ips)} to fetch")
         
         if uncached_ips:
             # Limit concurrent requests to avoid overwhelming the API
@@ -297,18 +301,35 @@ class ISPDetector:
             
             async def bounded_get_isp_info(ip: str):
                 async with semaphore:
-                    return await self.get_isp_info(ip)
+                    try:
+                        return await self.get_isp_info(ip)
+                    except Exception as e:
+                        logger.error(f"Error getting ISP for {ip}: {e}")
+                        return {"ip": ip, "isp": "Unknown ISP", "country": "Unknown", "city": "Unknown", "region": "Unknown"}
             
             # Process in batches of 10 to be gentle on API
             batch_size = 10
+            total_batches = (len(uncached_ips) + batch_size - 1) // batch_size
+            
             for i in range(0, len(uncached_ips), batch_size):
                 batch = uncached_ips[i:i + batch_size]
+                batch_num = (i // batch_size) + 1
+                logger.info(f"🔍 ISP batch {batch_num}/{total_batches}: processing {len(batch)} IPs...")
+                
                 tasks = [bounded_get_isp_info(ip) for ip in batch]
-                await asyncio.gather(*tasks, return_exceptions=True)
+                try:
+                    await asyncio.wait_for(
+                        asyncio.gather(*tasks, return_exceptions=True),
+                        timeout=30  # 30 second timeout per batch
+                    )
+                except asyncio.TimeoutError:
+                    logger.warning(f"⚠️ ISP batch {batch_num} timed out after 30s")
                 
                 # Small delay between batches if we have more
                 if i + batch_size < len(uncached_ips):
                     await asyncio.sleep(0.5)
+            
+            logger.info(f"✅ ISP lookup complete: processed {len(uncached_ips)} IPs")
         
         # Build result from cache
         def default_info(ip_addr):
