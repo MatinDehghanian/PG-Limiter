@@ -85,7 +85,6 @@ async def run_migrations():
     import sqlite3
     from alembic.config import Config
     from alembic import command
-    from alembic.script import ScriptDirectory
     
     # Get the database file path
     db_path = DATABASE_URL.replace("sqlite+aiosqlite:///", "")
@@ -94,62 +93,101 @@ async def run_migrations():
     
     # Get alembic config
     alembic_cfg = Config("alembic.ini")
-    script = ScriptDirectory.from_config(alembic_cfg)
     
-    # Check if this is an existing database without alembic_version
-    if os.path.exists(db_path):
-        try:
+    try:
+        if os.path.exists(db_path):
             conn = sqlite3.connect(db_path)
             cursor = conn.cursor()
             
-            # Check if alembic_version table exists
-            cursor.execute(
-                "SELECT name FROM sqlite_master WHERE type='table' AND name='alembic_version'"
-            )
-            has_alembic = cursor.fetchone() is not None
-            
-            # Check if users table exists (old database)
+            # Check if users table exists
             cursor.execute(
                 "SELECT name FROM sqlite_master WHERE type='table' AND name='users'"
             )
             has_users = cursor.fetchone() is not None
             
-            if has_users and not has_alembic:
-                # Old database exists without migration tracking
-                # Check if it has the new columns (is_excepted)
+            # Check if users table has the new consolidated columns
+            has_new_columns = False
+            if has_users:
                 cursor.execute("PRAGMA table_info(users)")
                 columns = {row[1] for row in cursor.fetchall()}
+                has_new_columns = "is_excepted" in columns
+            
+            conn.close()
+            
+            if has_users and not has_new_columns:
+                # Database exists but missing new columns - add them directly
+                db_logger.info("📌 Adding missing columns to users table...")
+                _add_missing_columns(db_path)
+                db_logger.info("✅ Columns added successfully")
                 
-                if "is_excepted" in columns:
-                    # Database already has consolidated columns, stamp as current
-                    db_logger.info("📌 Stamping existing database at 002_consolidate_users")
-                    conn.close()
+                # Stamp at latest migration
+                try:
                     command.stamp(alembic_cfg, "002_consolidate_users")
-                else:
-                    # Old database without new columns, stamp at 001 then upgrade
-                    db_logger.info("📌 Stamping existing database at 001_initial")
-                    conn.close()
-                    command.stamp(alembic_cfg, "001_initial")
-                    db_logger.info("🔄 Upgrading database to latest version...")
-                    command.upgrade(alembic_cfg, "head")
+                except Exception:
+                    pass  # Ignore stamp errors
             else:
-                conn.close()
-                # Run normal upgrade (will create tables if needed or apply pending migrations)
-                db_logger.info("🔄 Running database upgrade...")
-                command.upgrade(alembic_cfg, "head")
-                
-        except Exception as e:
-            db_logger.error(f"Migration check failed: {e}")
-            # Fallback: try to run upgrade anyway
+                # Try normal upgrade
+                try:
+                    command.upgrade(alembic_cfg, "head")
+                except Exception as e:
+                    if "already exists" in str(e):
+                        # Tables exist, try to stamp and continue
+                        try:
+                            command.stamp(alembic_cfg, "head")
+                        except Exception:
+                            pass
+                    else:
+                        db_logger.warning(f"Migration upgrade issue: {e}")
+        else:
+            # Fresh database - just run migrations
+            db_logger.info("🔄 Creating new database with migrations...")
+            command.upgrade(alembic_cfg, "head")
+            
+    except Exception as e:
+        db_logger.warning(f"Migration handling: {e}")
+        # Fallback: ensure columns exist
+        if os.path.exists(db_path):
+            _add_missing_columns(db_path)
+
+
+def _add_missing_columns(db_path: str):
+    """Add missing consolidated columns to users table."""
+    import sqlite3
+    
+    conn = sqlite3.connect(db_path)
+    cursor = conn.cursor()
+    
+    # Get existing columns
+    cursor.execute("PRAGMA table_info(users)")
+    existing_columns = {row[1] for row in cursor.fetchall()}
+    
+    # Define columns to add
+    columns_to_add = [
+        ("is_excepted", "BOOLEAN DEFAULT 0"),
+        ("exception_reason", "TEXT"),
+        ("excepted_by", "VARCHAR(255)"),
+        ("excepted_at", "DATETIME"),
+        ("special_limit", "INTEGER"),
+        ("special_limit_updated_at", "DATETIME"),
+        ("is_disabled_by_limiter", "BOOLEAN DEFAULT 0"),
+        ("disabled_at", "FLOAT"),
+        ("enable_at", "FLOAT"),
+        ("original_groups", "JSON"),
+        ("disable_reason", "TEXT"),
+        ("punishment_step", "INTEGER DEFAULT 0"),
+    ]
+    
+    for col_name, col_type in columns_to_add:
+        if col_name not in existing_columns:
             try:
-                command.upgrade(alembic_cfg, "head")
-            except Exception as upgrade_error:
-                db_logger.error(f"Migration upgrade failed: {upgrade_error}")
-                raise
-    else:
-        # Fresh database - just run migrations
-        db_logger.info("🔄 Creating new database with migrations...")
-        command.upgrade(alembic_cfg, "head")
+                cursor.execute(f"ALTER TABLE users ADD COLUMN {col_name} {col_type}")
+                db_logger.debug(f"  Added column: {col_name}")
+            except sqlite3.OperationalError as e:
+                if "duplicate column" not in str(e).lower():
+                    db_logger.warning(f"  Could not add {col_name}: {e}")
+    
+    conn.commit()
+    conn.close()
 
 
 async def close_db():
