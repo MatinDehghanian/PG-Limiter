@@ -167,9 +167,9 @@ async def check_ip_used() -> dict:
     show_enhanced_details = config_data.get("display", {}).get("show_enhanced_details", True)
     
     # Read special limits from database instead of config
-    from db.database import async_session_maker
+    from db.database import get_db
     from db.crud import UserCRUD
-    async with async_session_maker() as db:
+    async with get_db() as db:
         special_limit = await UserCRUD.get_all_special_limits(db)
     
     # Get panel data for filter checks
@@ -474,9 +474,9 @@ async def check_users_usage(panel_data: PanelType):
     limit_number = limits_config.get("general", 2)
     
     # Read special limits from database instead of config
-    from db.database import async_session_maker
+    from db.database import get_db
     from db.crud import UserCRUD
-    async with async_session_maker() as db:
+    async with get_db() as db:
         special_limit = await UserCRUD.get_all_special_limits(db)
     
     # Initialize ISP detector if not already done

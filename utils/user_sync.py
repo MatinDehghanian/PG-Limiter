@@ -508,7 +508,7 @@ async def get_pending_deletions(panel_data: PanelType) -> dict:
             "reason": "reason if not safe"
         }
     """
-    from db.database import async_session_maker
+    from db.database import get_db
     from db.crud import UserCRUD
     
     result = {
@@ -527,7 +527,7 @@ async def get_pending_deletions(panel_data: PanelType) -> dict:
         result["panel_count"] = len(panel_usernames)
         
         # Get local users
-        async with async_session_maker() as db:
+        async with get_db() as db:
             local_users = await UserCRUD.get_all(db)
             local_usernames = {u.username for u in local_users}
             result["local_count"] = len(local_usernames)
@@ -566,13 +566,13 @@ async def force_delete_users(usernames: list[str]) -> tuple[int, list[str]]:
     Returns:
         Tuple of (deleted_count, errors)
     """
-    from db.database import async_session_maker
+    from db.database import get_db
     from db.crud import UserCRUD
     
     deleted = 0
     errors = []
     
-    async with async_session_maker() as db:
+    async with get_db() as db:
         for username in usernames:
             try:
                 result = await UserCRUD.delete(db, username)
