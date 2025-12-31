@@ -5,6 +5,7 @@ Uses async SQLAlchemy with aiosqlite for SQLite.
 
 import os
 import sqlite3
+import warnings
 from contextlib import asynccontextmanager
 from typing import AsyncGenerator
 
@@ -159,6 +160,7 @@ def _run_migrations_sync():
     """
     Run Alembic migrations synchronously.
     Columns are already ensured at module load time by _ensure_db_columns().
+    Note: We suppress coroutine warnings since migrations are also handled by start.sh
     """
     from alembic.config import Config
     from alembic import command
@@ -166,27 +168,30 @@ def _run_migrations_sync():
     db_path = _get_db_path()
     alembic_cfg = Config("alembic.ini")
     
-    try:
-        if not os.path.exists(db_path):
-            # Fresh database - create with migrations
-            db_logger.info("🔄 Creating new database with migrations...")
-            command.upgrade(alembic_cfg, "head")
-        else:
-            # Existing database - try to upgrade, handle errors gracefully
-            try:
+    # Suppress coroutine warnings during migration (handled by start.sh)
+    with warnings.catch_warnings():
+        warnings.filterwarnings("ignore", message="coroutine.*was never awaited")
+        try:
+            if not os.path.exists(db_path):
+                # Fresh database - create with migrations
+                db_logger.info("🔄 Creating new database with migrations...")
                 command.upgrade(alembic_cfg, "head")
-            except Exception as e:
-                error_msg = str(e).lower()
-                if "already exists" in error_msg or "duplicate" in error_msg:
-                    # Tables/columns already exist, stamp as current
-                    try:
-                        command.stamp(alembic_cfg, "head")
-                    except Exception:
-                        pass
-                else:
-                    db_logger.debug(f"Migration note: {e}")
-    except Exception as e:
-        db_logger.debug(f"Migration handling: {e}")
+            else:
+                # Existing database - try to upgrade, handle errors gracefully
+                try:
+                    command.upgrade(alembic_cfg, "head")
+                except Exception as e:
+                    error_msg = str(e).lower()
+                    if "already exists" in error_msg or "duplicate" in error_msg:
+                        # Tables/columns already exist, stamp as current
+                        try:
+                            command.stamp(alembic_cfg, "head")
+                        except Exception:
+                            pass
+                    else:
+                        db_logger.debug(f"Migration note: {e}")
+        except Exception as e:
+            db_logger.debug(f"Migration handling: {e}")
 
 
 async def close_db():
