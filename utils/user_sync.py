@@ -39,23 +39,28 @@ async def get_all_users_with_details(panel_data: PanelType) -> list[dict]:
     limit = 100
     
     for attempt in range(max_attempts):
+        sync_logger.debug(f"🔄 Attempt {attempt + 1}/{max_attempts} to fetch users...")
         all_users.clear()
         offset = 0
         
         force_refresh = attempt > 0
+        sync_logger.debug(f"🔑 Getting panel token (force_refresh={force_refresh})...")
         get_panel_token = await get_token(panel_data, force_refresh=force_refresh)
         if isinstance(get_panel_token, ValueError):
             sync_logger.error(f"Failed to get panel token: {get_panel_token}")
             continue
         
+        sync_logger.debug("✅ Got panel token")
         token = get_panel_token.panel_token
         headers = {"Authorization": f"Bearer {token}"}
         
         pagination_success = True
+        page_count = 0
         while pagination_success:
             page_success = False
             for scheme in ["https", "http"]:
                 url = f"{scheme}://{panel_data.panel_domain}/api/users?offset={offset}&limit={limit}"
+                sync_logger.debug(f"📡 Fetching page {page_count + 1}: offset={offset}...")
                 start_time = time.perf_counter()
                 try:
                     async with httpx.AsyncClient(verify=False) as client:
@@ -81,10 +86,11 @@ async def get_all_users_with_details(panel_data: PanelType) -> list[dict]:
                         total = len(users)
                     
                     all_users.extend(users)
+                    page_count += 1
                     
-                    sync_logger.debug(
-                        f"📋 Page fetched: offset={offset}, got {len(users)} users, "
-                        f"total collected: {len(all_users)}"
+                    sync_logger.info(
+                        f"📋 Page {page_count}: got {len(users)} users, "
+                        f"total collected: {len(all_users)}/{total}"
                     )
                     
                     if len(users) < limit or offset + len(users) >= total:
@@ -145,9 +151,6 @@ async def sync_users_to_database(panel_data: PanelType) -> tuple[int, int, int]:
     deleted_usernames = []
     
     try:
-        from db.database import get_db
-        from db.crud.users import UserCRUD
-        
         sync_logger.info("🔄 Starting user sync from panel to database...")
         start_time = datetime.utcnow()
         
@@ -156,6 +159,7 @@ async def sync_users_to_database(panel_data: PanelType) -> tuple[int, int, int]:
         
         if not users:
             sync_logger.warning("⚠️ No users fetched from panel - skipping sync entirely")
+            _sync_in_progress = False
             return (0, 0, 0)
         
         sync_logger.info(f"📥 Processing {len(users)} users...")
@@ -165,7 +169,14 @@ async def sync_users_to_database(panel_data: PanelType) -> tuple[int, int, int]:
         
         if not panel_usernames:
             sync_logger.warning("⚠️ No valid usernames in panel response - skipping sync")
+            _sync_in_progress = False
             return (0, 0, 0)
+        
+        # Import database modules here to avoid circular imports
+        from db.database import get_db
+        from db.crud.users import UserCRUD
+        
+        sync_logger.debug("📂 Opening database connection for sync...")
         
         async with get_db() as db:
             # Get existing usernames in local DB
