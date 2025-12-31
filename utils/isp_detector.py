@@ -84,12 +84,15 @@ class ISPDetector:
         # Check Redis cache first (fastest)
         if REDIS_CACHE_AVAILABLE:
             try:
-                cached = await get_cached_isp(ip)
-                if cached:
-                    logger.debug(f"ISP Redis cache hit for {ip}")
-                    # Also store in memory cache
-                    self.cache[ip] = cached
-                    return cached
+                async with asyncio.timeout(2):  # 2 second Redis timeout
+                    cached = await get_cached_isp(ip)
+                    if cached:
+                        logger.debug(f"ISP Redis cache hit for {ip}")
+                        # Also store in memory cache
+                        self.cache[ip] = cached
+                        return cached
+            except asyncio.TimeoutError:
+                logger.warning(f"Redis cache timeout for {ip}")
             except Exception as e:
                 logger.warning(f"Redis cache lookup failed for {ip}: {e}")
         
@@ -100,13 +103,16 @@ class ISPDetector:
         # Check database cache (by subnet) if enabled
         if self._db_cache:
             try:
-                cached = await self._db_cache.get_cached_isp(ip)
-                if cached:
-                    # Copy to memory cache and Redis
-                    self.cache[ip] = cached
-                    await self._cache_isp_result(ip, cached)
-                    logger.debug(f"ISP cache hit for {ip} (subnet cache)")
-                    return cached
+                async with asyncio.timeout(3):  # 3 second DB cache timeout
+                    cached = await self._db_cache.get_cached_isp(ip)
+                    if cached:
+                        # Copy to memory cache and Redis
+                        self.cache[ip] = cached
+                        await self._cache_isp_result(ip, cached)
+                        logger.debug(f"ISP cache hit for {ip} (subnet cache)")
+                        return cached
+            except asyncio.TimeoutError:
+                logger.warning(f"DB cache timeout for {ip}")
             except Exception as e:
                 logger.warning(f"Database cache lookup failed: {e}")
         
@@ -139,54 +145,56 @@ class ISPDetector:
             headers = {}
             if self.token:
                 headers["Authorization"] = f"Bearer {self.token}"
-                logger.info(f"ISP lookup for {ip} with token: {self.token[:20]}...")
+                logger.debug(f"ISP lookup for {ip} with token")
             else:
-                logger.warning(f"ISP lookup for {ip} WITHOUT token - may be rate limited")
+                logger.debug(f"ISP lookup for {ip} without token")
             
             session = await self._get_session()
-            async with session.get(url, headers=headers, timeout=10) as response:
-                if response.status == 200:
-                    data = await response.json()
-                    # Prefer as_domain, fallback to as_name, then org
-                    isp_name = data.get("as_domain") or data.get("as_name") or data.get("org", "Unknown ISP")
-                    logger.info(f"ISP detected for {ip}: {isp_name}")
-                    isp_info = {
-                        "ip": ip,
-                        "isp": isp_name,
-                        "country": data.get("country", "Unknown"),
-                        "city": data.get("city", "Unknown"),
-                        "region": data.get("region", "Unknown")
-                    }
-                    self.cache[ip] = isp_info
-                    self.last_request_time = asyncio.get_event_loop().time()
-                    # Save to all caches (Redis + database)
-                    await self._cache_isp_result(ip, isp_info)
-                    return isp_info
-                elif response.status == 429:
-                    # Rate limited - set flag and return default
-                    self.rate_limited = True
-                    logger.warning(f"ISP detection rate limited for {ip}")
-                elif response.status == 403:
-                    # Forbidden - try fallback API
-                    logger.warning(f"ipinfo.io returned 403 for {ip}, trying fallback API...")
-                    result = await self._get_isp_fallback(ip)
-                    await self._cache_isp_result(ip, result)
-                    return result
-                else:
-                    response_text = await response.text()
-                    logger.warning(f"Failed to get ISP info for {ip}: HTTP {response.status} - {response_text}")
+            # Wrap entire API call in timeout
+            async with asyncio.timeout(10):
+                async with session.get(url, headers=headers, timeout=aiohttp.ClientTimeout(total=8)) as response:
+                    if response.status == 200:
+                        data = await response.json()
+                        # Prefer as_domain, fallback to as_name, then org
+                        isp_name = data.get("as_domain") or data.get("as_name") or data.get("org", "Unknown ISP")
+                        logger.debug(f"ISP detected for {ip}: {isp_name}")
+                        isp_info = {
+                            "ip": ip,
+                            "isp": isp_name,
+                            "country": data.get("country", "Unknown"),
+                            "city": data.get("city", "Unknown"),
+                            "region": data.get("region", "Unknown")
+                        }
+                        self.cache[ip] = isp_info
+                        self.last_request_time = asyncio.get_event_loop().time()
+                        # Save to all caches (Redis + database) - don't await, fire and forget
+                        asyncio.create_task(self._cache_isp_result(ip, isp_info))
+                        return isp_info
+                    elif response.status == 429:
+                        # Rate limited - set flag and return default
+                        self.rate_limited = True
+                        logger.warning(f"ISP detection rate limited for {ip}")
+                    elif response.status == 403:
+                        # Forbidden - try fallback API
+                        logger.warning(f"ipinfo.io returned 403 for {ip}, trying fallback API...")
+                        result = await self._get_isp_fallback(ip)
+                        asyncio.create_task(self._cache_isp_result(ip, result))
+                        return result
+                    else:
+                        response_text = await response.text()
+                        logger.warning(f"Failed to get ISP info for {ip}: HTTP {response.status} - {response_text[:100]}")
                         
         except asyncio.TimeoutError:
-            logger.error(f"Timeout getting ISP info for {ip}")
-            # Try fallback on timeout
+            logger.warning(f"⏱️ Timeout getting ISP info for {ip}, trying fallback...")
+            # Try fallback on timeout - don't wait for cache
             result = await self._get_isp_fallback(ip)
-            await self._cache_isp_result(ip, result)
+            asyncio.create_task(self._cache_isp_result(ip, result))
             return result
         except Exception as e:
-            logger.error(f"Error getting ISP info for {ip}: {type(e).__name__}: {e}")
-            # Try fallback on any error
+            logger.warning(f"❌ Error getting ISP info for {ip}: {type(e).__name__}, trying fallback...")
+            # Try fallback on any error - don't wait for cache
             result = await self._get_isp_fallback(ip)
-            await self._cache_isp_result(ip, result)
+            asyncio.create_task(self._cache_isp_result(ip, result))
             return result
         
         # Return default info if lookup fails
@@ -204,26 +212,32 @@ class ISPDetector:
         """Save ISP info to database cache (by subnet)"""
         if self._db_cache and isp_info.get("isp") != "Unknown ISP":
             try:
-                await self._db_cache.cache_isp(
-                    ip=ip,
-                    isp_name=isp_info.get("isp", "Unknown ISP"),
-                    country=isp_info.get("country"),
-                    city=isp_info.get("city"),
-                    region=isp_info.get("region"),
-                )
+                async with asyncio.timeout(3):  # 3 second DB timeout
+                    await self._db_cache.cache_isp(
+                        ip=ip,
+                        isp_name=isp_info.get("isp", "Unknown ISP"),
+                        country=isp_info.get("country"),
+                        city=isp_info.get("city"),
+                        region=isp_info.get("region"),
+                    )
+            except asyncio.TimeoutError:
+                logger.debug(f"DB cache save timeout for {ip}")
             except Exception as e:
                 logger.warning(f"Failed to save ISP to database cache: {e}")
     
     async def _cache_isp_result(self, ip: str, isp_info: Dict[str, str]):
-        """Cache ISP result to Redis (primary) and database (backup)"""
+        """Cache ISP result to Redis (primary) and database (backup) - non-blocking"""
         if isp_info.get("isp") == "Unknown ISP":
             return
         
-        # Cache to Redis (7 day TTL)
+        # Cache to Redis (7 day TTL) - with timeout
         if REDIS_CACHE_AVAILABLE:
             try:
-                await cache_isp(ip, isp_info)
-                logger.debug(f"Cached ISP for {ip} in Redis")
+                async with asyncio.timeout(2):  # 2 second Redis timeout
+                    await cache_isp(ip, isp_info)
+                    logger.debug(f"Cached ISP for {ip} in Redis")
+            except asyncio.TimeoutError:
+                logger.debug(f"Redis cache timeout for {ip}")
             except Exception as e:
                 logger.warning(f"Failed to cache ISP in Redis: {e}")
         
@@ -358,31 +372,36 @@ class ISPDetector:
             async def bounded_get_isp_info(ip: str):
                 async with semaphore:
                     try:
+                        logger.debug(f"🔍 Starting ISP lookup for {ip}...")
                         # Wrap in timeout to prevent individual IP from hanging
                         result = await asyncio.wait_for(
                             self.get_isp_info(ip),
                             timeout=12  # 12 second timeout per IP
                         )
-                        # Save to database cache
+                        logger.debug(f"✅ Got ISP for {ip}: {result.get('isp', 'Unknown')[:30]}")
+                        # Save to database cache - with its own timeout
                         if result.get("isp") != "Unknown ISP" and self._db_cache:
                             try:
                                 from db.database import get_db
-                                async with get_db() as db:
-                                    await SubnetISPCRUD.cache_isp(
-                                        db, ip,
-                                        isp=result.get("isp", "Unknown ISP"),
-                                        country=result.get("country"),
-                                        city=result.get("city"),
-                                        region=result.get("region")
-                                    )
+                                async with asyncio.timeout(5):  # 5 second DB timeout
+                                    async with get_db() as db:
+                                        await SubnetISPCRUD.cache_isp(
+                                            db, ip,
+                                            isp=result.get("isp", "Unknown ISP"),
+                                            country=result.get("country"),
+                                            city=result.get("city"),
+                                            region=result.get("region")
+                                        )
+                            except asyncio.TimeoutError:
+                                logger.debug(f"DB cache timeout for {ip}")
                             except Exception as e:
                                 logger.debug(f"DB cache failed for {ip}: {e}")
                         return result
                     except asyncio.TimeoutError:
-                        logger.warning(f"Timeout for {ip}, using default")
+                        logger.warning(f"⏱️ Timeout for {ip}, using default")
                         return {"ip": ip, "isp": "Unknown ISP", "country": "Unknown", "city": "Unknown", "region": "Unknown"}
                     except Exception as e:
-                        logger.warning(f"Error for {ip}: {type(e).__name__}")
+                        logger.warning(f"❌ Error for {ip}: {type(e).__name__}")
                         return {"ip": ip, "isp": "Unknown ISP", "country": "Unknown", "city": "Unknown", "region": "Unknown"}
             
             # Process in smaller batches with longer delays to respect rate limits
@@ -394,15 +413,17 @@ class ISPDetector:
             for i in range(0, len(uncached_ips), batch_size):
                 batch = uncached_ips[i:i + batch_size]
                 batch_num = (i // batch_size) + 1
-                logger.info(f"🔍 ISP batch {batch_num}/{total_batches}: {len(batch)} IPs...")
+                logger.info(f"🔍 ISP batch {batch_num}/{total_batches}: {len(batch)} IPs: {batch}")
                 
                 try:
                     tasks = [bounded_get_isp_info(ip) for ip in batch]
+                    logger.debug(f"📦 Created {len(tasks)} tasks for batch {batch_num}")
                     # Use asyncio.gather with return_exceptions to handle errors gracefully
                     results = await asyncio.wait_for(
                         asyncio.gather(*tasks, return_exceptions=True),
                         timeout=40  # 40 second timeout per batch (5 IPs * 12s + buffer)
                     )
+                    logger.debug(f"📦 Batch {batch_num} gather completed")
                     # Check for exceptions in results
                     failed = sum(1 for r in results if isinstance(r, Exception))
                     if failed > 0:
@@ -410,12 +431,13 @@ class ISPDetector:
                     else:
                         logger.info(f"✅ Batch {batch_num}/{total_batches} complete")
                 except asyncio.TimeoutError:
-                    logger.warning(f"⚠️ Batch {batch_num} timed out, continuing...")
+                    logger.warning(f"⚠️ Batch {batch_num} timed out after 40s, continuing...")
                 except Exception as e:
-                    logger.error(f"⚠️ Batch {batch_num} error: {type(e).__name__}, continuing...")
+                    logger.error(f"⚠️ Batch {batch_num} error: {type(e).__name__}: {e}, continuing...")
                 
                 # Delay between batches to respect rate limits (2 seconds)
                 if i + batch_size < len(uncached_ips):
+                    logger.debug(f"⏳ Waiting 2s before next batch...")
                     await asyncio.sleep(2.0)
             
             logger.info(f"✅ ISP lookup complete: processed {len(uncached_ips)} IPs")

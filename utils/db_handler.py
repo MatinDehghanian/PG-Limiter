@@ -225,8 +225,15 @@ class DBSubnetISPCache:
 
     async def _ensure_initialized(self):
         if not self._initialized:
-            await init_db()
-            self._initialized = True
+            try:
+                import asyncio
+                async with asyncio.timeout(10):  # 10 second timeout for DB init
+                    await init_db()
+                self._initialized = True
+            except asyncio.TimeoutError:
+                logger.warning("DB initialization timeout, skipping cache")
+            except Exception as e:
+                logger.warning(f"DB initialization failed: {e}")
 
     @staticmethod
     def _get_subnet(ip: str) -> str:
@@ -246,7 +253,16 @@ class DBSubnetISPCache:
         Returns:
             ISP info dict if cached, None otherwise
         """
-        await self._ensure_initialized()
+        import asyncio
+        
+        try:
+            async with asyncio.timeout(3):  # 3 second timeout for cache lookup
+                await self._ensure_initialized()
+        except asyncio.TimeoutError:
+            logger.debug(f"DB init timeout in get_cached_isp for {ip}")
+            return None
+        except Exception:
+            return None
 
         subnet = self._get_subnet(ip)
 
@@ -254,19 +270,25 @@ class DBSubnetISPCache:
         if subnet in self._memory_cache:
             return self._memory_cache[subnet]
 
-        # Check database
-        async with get_db() as session:
-            cached = await SubnetISPCRUD.get_by_ip(session, ip)
-            if cached:
-                isp_info = {
-                    "ip": ip,
-                    "isp": cached.isp,
-                    "country": cached.country or "Unknown",
-                    "city": cached.city or "Unknown",
-                    "region": cached.region or "Unknown",
-                }
-                self._memory_cache[subnet] = isp_info
-                return isp_info
+        # Check database with timeout
+        try:
+            async with asyncio.timeout(3):  # 3 second timeout for DB query
+                async with get_db() as session:
+                    cached = await SubnetISPCRUD.get_by_ip(session, ip)
+                    if cached:
+                        isp_info = {
+                            "ip": ip,
+                            "isp": cached.isp,
+                            "country": cached.country or "Unknown",
+                            "city": cached.city or "Unknown",
+                            "region": cached.region or "Unknown",
+                        }
+                        self._memory_cache[subnet] = isp_info
+                        return isp_info
+        except asyncio.TimeoutError:
+            logger.debug(f"DB query timeout in get_cached_isp for {ip}")
+        except Exception as e:
+            logger.debug(f"DB error in get_cached_isp: {e}")
 
         return None
 
@@ -279,7 +301,7 @@ class DBSubnetISPCache:
         region: Optional[str] = None,
     ):
         """
-        Cache ISP info for an IP's subnet.
+        Cache ISP info for an IP's subnet. Non-blocking with timeout.
 
         Args:
             ip: IP address
@@ -288,22 +310,20 @@ class DBSubnetISPCache:
             city: City name
             region: Region name
         """
-        await self._ensure_initialized()
+        import asyncio
+        
+        try:
+            async with asyncio.timeout(3):  # 3 second timeout for init
+                await self._ensure_initialized()
+        except asyncio.TimeoutError:
+            logger.debug(f"DB init timeout in cache_isp for {ip}")
+            return
+        except Exception:
+            return
 
         subnet = self._get_subnet(ip)
 
-        # Save to database
-        async with get_db() as session:
-            await SubnetISPCRUD.cache_isp(
-                session,
-                ip=ip,
-                isp=isp_name,
-                country=country,
-                city=city,
-                region=region,
-            )
-
-        # Update memory cache
+        # Update memory cache first (always succeeds)
         self._memory_cache[subnet] = {
             "ip": ip,
             "isp": isp_name,
@@ -311,6 +331,23 @@ class DBSubnetISPCache:
             "city": city or "Unknown",
             "region": region or "Unknown",
         }
+
+        # Save to database with timeout
+        try:
+            async with asyncio.timeout(3):  # 3 second timeout for DB save
+                async with get_db() as session:
+                    await SubnetISPCRUD.cache_isp(
+                        session,
+                        ip=ip,
+                        isp=isp_name,
+                        country=country,
+                        city=city,
+                        region=region,
+                    )
+        except asyncio.TimeoutError:
+            logger.debug(f"DB save timeout in cache_isp for {ip}")
+        except Exception as e:
+            logger.debug(f"DB error in cache_isp: {e}")
 
         logger.debug(f"Cached ISP for subnet {subnet}: {isp_name}")
 
