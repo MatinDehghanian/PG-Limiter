@@ -184,6 +184,8 @@ async def check_ip_used() -> dict:
             logger.info("Using fallback ISP API (ip-api.com) for all requests")
         isp_detector = ISPDetector(token=ipinfo_token if ipinfo_token else None, use_fallback_only=use_fallback_api)
     
+    logger.info(f"📊 Processing {len(ACTIVE_USERS)} active users...")
+    
     all_users_log = {}
     enhanced_users_info = {}
     filtered_users = set()  # Users filtered out by group/admin filters
@@ -211,11 +213,20 @@ async def check_ip_used() -> dict:
         for ip in all_unique_ips:
             all_ips.add(ip)
     
+    logger.info(f"📊 Collected {len(all_ips)} unique IPs from {len(all_users_log)} users")
+    
     # Get ISP information for all IPs
-    isp_info_batch = await isp_detector.get_multiple_isp_info(list(all_ips))
+    if all_ips:
+        logger.info(f"🔍 Looking up ISP info for {len(all_ips)} IPs...")
+        isp_info_batch = await isp_detector.get_multiple_isp_info(list(all_ips))
+        logger.info(f"✅ ISP lookup complete: {len(isp_info_batch)} results")
+    else:
+        isp_info_batch = {}
+        logger.info("📊 No IPs to look up (no active connections)")
     
     # Pre-filter users based on group and admin filter settings
     # This ensures we don't show logs or send action messages for filtered users
+    logger.debug("🔍 Applying user filters...")
     for email in list(ACTIVE_USERS.keys()):
         # Check group filter
         should_limit_group, _ = await should_limit_user(panel_data, email, config_data)
