@@ -77,9 +77,12 @@ async def get_all_users_with_details(panel_data: PanelType) -> list[dict]:
                     sync_logger.info(f"📡 Fetching page {page_count + 1}: {scheme}://... offset={offset}...")
                     start_time = time.perf_counter()
                     try:
-                        async with httpx.AsyncClient(verify=False) as client:
-                            response = await client.get(url, headers=headers, timeout=30)
+                        sync_logger.info("🔌 Creating HTTP client...")
+                        async with httpx.AsyncClient(verify=False, timeout=30) as client:
+                            sync_logger.info("📤 Sending GET request...")
+                            response = await client.get(url, headers=headers)
                             elapsed = (time.perf_counter() - start_time) * 1000
+                            sync_logger.info(f"📥 Got response: {response.status_code} in {elapsed:.0f}ms")
                             response.raise_for_status()
                         
                         log_api_request("GET", url, response.status_code, elapsed)
@@ -221,77 +224,90 @@ async def sync_users_to_database(panel_data: PanelType) -> tuple[int, int, int]:
             local_usernames = await UserCRUD.get_all_usernames(db)
             sync_logger.info(f"📊 Found {len(local_usernames)} existing users in local DB")
             
-            # Sync users from panel FIRST (before any deletion logic)
-            for user_data in users:
-                try:
-                    username = user_data.get("username")
-                    if not username:
-                        continue
-                    
-                    # Extract user details
-                    status = user_data.get("status", "active")
-                    
-                    # Get admin/owner info
-                    admin_info = user_data.get("admin", {}) or {}
-                    owner_id = admin_info.get("id") if isinstance(admin_info, dict) else None
-                    owner_username = admin_info.get("username") if isinstance(admin_info, dict) else None
-                    
-                    # Alternative: check for "created_by" field
-                    if not owner_username:
-                        owner_username = user_data.get("created_by")
-                    
-                    # Get group IDs
-                    group_ids = user_data.get("group_ids") or user_data.get("groups") or []
-                    if isinstance(group_ids, str):
-                        group_ids = [int(g.strip()) for g in group_ids.split(",") if g.strip()]
-                    
-                    # Get data limits
-                    data_limit = user_data.get("data_limit")
-                    if data_limit:
-                        data_limit = data_limit / (1024 ** 3)  # Convert to GB
-                    
-                    used_traffic = user_data.get("used_traffic", 0)
-                    if used_traffic:
-                        used_traffic = used_traffic / (1024 ** 3)  # Convert to GB
-                    
-                    # Get expiry
-                    expire_at = None
-                    expire_value = user_data.get("expire")
-                    if expire_value:
-                        if isinstance(expire_value, int):
-                            # Unix timestamp
-                            if expire_value > 0:
-                                expire_at = datetime.fromtimestamp(expire_value)
-                        elif isinstance(expire_value, str):
-                            # ISO datetime string
-                            try:
-                                expire_at = datetime.fromisoformat(
-                                    expire_value.replace("Z", "+00:00")
-                                )
-                            except ValueError:
-                                pass
-                    
-                    # Get note
-                    note = user_data.get("note")
-                    
-                    # Create or update in database
-                    await UserCRUD.create_or_update(
-                        db,
-                        username=username,
-                        status=status,
-                        owner_id=owner_id,
-                        owner_username=owner_username,
-                        group_ids=group_ids,
-                        data_limit=data_limit,
-                        used_traffic=used_traffic,
-                        expire_at=expire_at,
-                        note=note,
-                    )
-                    synced += 1
-                    
-                except Exception as e:
-                    sync_logger.error(f"Error syncing user {user_data.get('username', '?')}: {e}")
-                    errors += 1
+            # Sync users from panel in batches to avoid memory issues
+            batch_size = 50
+            total_users = len(users)
+            
+            for batch_start in range(0, total_users, batch_size):
+                batch_end = min(batch_start + batch_size, total_users)
+                batch = users[batch_start:batch_end]
+                
+                sync_logger.info(f"📝 Processing batch {batch_start//batch_size + 1}: users {batch_start+1}-{batch_end}/{total_users}")
+                
+                for user_data in batch:
+                    try:
+                        username = user_data.get("username")
+                        if not username:
+                            continue
+                        
+                        # Extract user details
+                        status = user_data.get("status", "active")
+                        
+                        # Get admin/owner info
+                        admin_info = user_data.get("admin", {}) or {}
+                        owner_id = admin_info.get("id") if isinstance(admin_info, dict) else None
+                        owner_username = admin_info.get("username") if isinstance(admin_info, dict) else None
+                        
+                        # Alternative: check for "created_by" field
+                        if not owner_username:
+                            owner_username = user_data.get("created_by")
+                        
+                        # Get group IDs
+                        group_ids = user_data.get("group_ids") or user_data.get("groups") or []
+                        if isinstance(group_ids, str):
+                            group_ids = [int(g.strip()) for g in group_ids.split(",") if g.strip()]
+                        
+                        # Get data limits
+                        data_limit = user_data.get("data_limit")
+                        if data_limit:
+                            data_limit = data_limit / (1024 ** 3)  # Convert to GB
+                        
+                        used_traffic = user_data.get("used_traffic", 0)
+                        if used_traffic:
+                            used_traffic = used_traffic / (1024 ** 3)  # Convert to GB
+                        
+                        # Get expiry
+                        expire_at = None
+                        expire_value = user_data.get("expire")
+                        if expire_value:
+                            if isinstance(expire_value, int):
+                                # Unix timestamp
+                                if expire_value > 0:
+                                    expire_at = datetime.fromtimestamp(expire_value)
+                            elif isinstance(expire_value, str):
+                                # ISO datetime string
+                                try:
+                                    expire_at = datetime.fromisoformat(
+                                        expire_value.replace("Z", "+00:00")
+                                    )
+                                except ValueError:
+                                    pass
+                        
+                        # Get note
+                        note = user_data.get("note")
+                        
+                        # Create or update in database
+                        await UserCRUD.create_or_update(
+                            db,
+                            username=username,
+                            status=status,
+                            owner_id=owner_id,
+                            owner_username=owner_username,
+                            group_ids=group_ids,
+                            data_limit=data_limit,
+                            used_traffic=used_traffic,
+                            expire_at=expire_at,
+                            note=note,
+                        )
+                        synced += 1
+                        
+                    except Exception as e:
+                        sync_logger.error(f"Error syncing user {user_data.get('username', '?')}: {e}")
+                        errors += 1
+                
+                # Commit batch to database and flush to save memory
+                await db.flush()
+                sync_logger.info(f"✅ Batch committed: {synced} synced, {errors} errors so far")
             
             # SAFETY CHECKS before deleting users
             # Only delete if sync was mostly successful (less than 10% errors)
