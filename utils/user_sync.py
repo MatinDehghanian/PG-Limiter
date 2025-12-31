@@ -487,3 +487,105 @@ async def run_user_sync_loop(panel_data: PanelType):
         except Exception as e:
             sync_logger.error(f"Error in user sync loop: {e}")
             await asyncio.sleep(60)  # Wait before retry
+
+
+async def get_pending_deletions(panel_data: PanelType) -> dict:
+    """
+    Get the list of users that would be deleted during sync.
+    This allows manual review before force-deleting.
+    
+    Args:
+        panel_data: Panel connection data
+        
+    Returns:
+        Dictionary with pending deletions info:
+        {
+            "pending_deletions": ["user1", "user2", ...],
+            "local_count": 100,
+            "panel_count": 80,
+            "deletion_percentage": 20.0,
+            "safe_to_delete": True/False,
+            "reason": "reason if not safe"
+        }
+    """
+    from db.database import async_session_maker
+    from db.crud import UserCRUD
+    
+    result = {
+        "pending_deletions": [],
+        "local_count": 0,
+        "panel_count": 0,
+        "deletion_percentage": 0.0,
+        "safe_to_delete": True,
+        "reason": ""
+    }
+    
+    try:
+        # Get users from panel
+        users = await get_all_users_with_details(panel_data)
+        panel_usernames = {u.get("username") for u in users if u.get("username")}
+        result["panel_count"] = len(panel_usernames)
+        
+        # Get local users
+        async with async_session_maker() as db:
+            local_users = await UserCRUD.get_all(db)
+            local_usernames = {u.username for u in local_users}
+            result["local_count"] = len(local_usernames)
+        
+        # Find users to delete
+        pending = list(local_usernames - panel_usernames)
+        result["pending_deletions"] = sorted(pending)
+        
+        if local_usernames:
+            result["deletion_percentage"] = (len(pending) / len(local_usernames)) * 100
+        
+        # Check safety
+        if len(pending) > len(local_usernames) * 0.2:
+            result["safe_to_delete"] = False
+            result["reason"] = f"Would delete more than 20% of users ({result['deletion_percentage']:.1f}%)"
+        elif len(panel_usernames) < len(local_usernames) * 0.5:
+            result["safe_to_delete"] = False
+            result["reason"] = f"Panel returned significantly fewer users ({len(panel_usernames)} vs {len(local_usernames)})"
+            
+    except Exception as e:
+        sync_logger.error(f"Error getting pending deletions: {e}")
+        result["reason"] = f"Error: {e}"
+        result["safe_to_delete"] = False
+    
+    return result
+
+
+async def force_delete_users(usernames: list[str]) -> tuple[int, list[str]]:
+    """
+    Force delete specific users from local database.
+    Use after manual review of pending deletions.
+    
+    Args:
+        usernames: List of usernames to delete
+        
+    Returns:
+        Tuple of (deleted_count, errors)
+    """
+    from db.database import async_session_maker
+    from db.crud import UserCRUD
+    
+    deleted = 0
+    errors = []
+    
+    async with async_session_maker() as db:
+        for username in usernames:
+            try:
+                result = await UserCRUD.delete(db, username)
+                if result:
+                    deleted += 1
+                else:
+                    errors.append(f"{username}: not found")
+            except Exception as e:
+                errors.append(f"{username}: {e}")
+        
+        await db.commit()
+    
+    if deleted:
+        await _notify_deleted_users(usernames[:deleted])
+    
+    return deleted, errors

@@ -126,6 +126,8 @@ from telegram_bot.handlers.settings import (
     handle_user_sync_menu_callback,
     handle_user_sync_interval_callback,
     handle_user_sync_now_callback,
+    handle_pending_deletions_callback,
+    handle_force_delete_callback,
 )
 from telegram_bot.handlers.monitoring import (
     monitoring_status,
@@ -588,6 +590,14 @@ async def callback_query_handler(update: Update, context: ContextTypes.DEFAULT_T
     
     if data == CallbackData.USER_SYNC_NOW:
         await handle_user_sync_now_callback(query, context)
+        return
+    
+    if data == CallbackData.USER_SYNC_PENDING:
+        await handle_pending_deletions_callback(query, context)
+        return
+    
+    if data == CallbackData.USER_SYNC_FORCE_DELETE:
+        await handle_force_delete_callback(query, context)
         return
     
     # Back to settings callback
