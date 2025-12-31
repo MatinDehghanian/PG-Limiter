@@ -801,12 +801,19 @@ async def handle_user_sync_now_callback(query, _context: ContextTypes.DEFAULT_TY
             panel_config.get("domain", "")
         )
         
-        synced, errors = await sync_users_to_database(panel_data)
+        synced, errors, deleted = await sync_users_to_database(panel_data)
+        
+        # Build result message
+        result_lines = [
+            f"Synced: <code>{synced}</code> users",
+            f"Errors: <code>{errors}</code>",
+        ]
+        if deleted > 0:
+            result_lines.append(f"Deleted: <code>{deleted}</code> users (removed from panel)")
         
         await query.edit_message_text(
             text=f"✅ <b>User Sync Complete</b>\n\n"
-                 f"Synced: <code>{synced}</code> users\n"
-                 f"Errors: <code>{errors}</code>\n\n"
+                 + "\n".join(result_lines) + "\n\n"
                  f"User data is now cached locally for faster filtering.",
             reply_markup=InlineKeyboardMarkup([
                 [InlineKeyboardButton("🔄 Sync Again", callback_data=CallbackData.USER_SYNC_NOW)],
