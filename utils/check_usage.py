@@ -469,6 +469,8 @@ async def check_users_usage(panel_data: PanelType):
             logger.info("[check_users_usage] Using fallback ISP API (ip-api.com) for all requests")
         isp_detector = ISPDetector(token=ipinfo_token if ipinfo_token else None, use_fallback_only=use_fallback_api)
     
+    logger.info("📊 Building user info from active connections...")
+    
     # Build user info with actual unique IP counts for ALL active users
     # This is critical for warning system to work correctly
     all_users_actual_ips = {}  # Maps username to set of actual unique IPs
@@ -485,10 +487,15 @@ async def check_users_usage(panel_data: PanelType):
         # Add to ISP lookup set
         all_ips_for_isp_lookup.update(unique_ips)
     
+    logger.info(f"📊 Found {len(all_users_actual_ips)} active users with {len(all_ips_for_isp_lookup)} unique IPs")
+    
     # Batch fetch ISP info for all IPs
+    logger.info(f"🔍 Looking up ISP info for {len(all_ips_for_isp_lookup)} IPs...")
     isp_info_batch = await isp_detector.get_multiple_isp_info(list(all_ips_for_isp_lookup))
+    logger.info(f"✅ ISP lookup complete")
     
     # Record IPs to history tracker for long-term tracking
+    logger.debug("📝 Recording IPs to history tracker...")
     for username, unique_ips in all_users_actual_ips.items():
         await ip_history_tracker.record_user_ips(username, unique_ips)
     
