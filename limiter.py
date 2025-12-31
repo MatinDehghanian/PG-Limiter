@@ -7,7 +7,6 @@ import argparse
 import asyncio
 import sys
 import time
-import traceback
 
 from run_telegram import run_telegram_bot
 from telegram_bot.send_message import send_logs
@@ -21,18 +20,14 @@ from utils.get_logs import (
     init_node_status_message,
 )
 from utils.handel_dis_users import DisabledUsers
-from utils.logs import logger, log_startup_info, log_shutdown_info, get_logger, log_crash_info
-from utils.panel_api import (
-    enable_dis_user,
-    enable_selected_users,
-    get_nodes,
-)
+from utils.logs import get_logger, log_startup_info, log_shutdown_info, log_crash_info
+from utils.panel_api import enable_selected_users, get_nodes
 from utils.read_config import read_config
 from utils.types import PanelType
 
 # Import Redis cache utilities
 try:
-    from utils.redis_cache import get_cache, close_cache, get_cache_stats
+    from utils.redis_cache import get_cache, close_cache
     REDIS_AVAILABLE = True
 except ImportError:
     REDIS_AVAILABLE = False
@@ -146,8 +141,9 @@ async def main():
         main_logger.debug("  └─ Started: handle_cancel")
         tg.create_task(handle_cancel_all(TASKS, panel_data, tg), name="cancel_all")
         main_logger.debug("  └─ Started: handle_cancel_all")
-        tg.create_task(enable_dis_user(panel_data), name="enable_dis_user")
-        main_logger.debug("  └─ Started: enable_dis_user")
+        
+        # Enable disabled user task is now part of check_usage.py punishment system
+        # No separate task needed as it's handled by the warning/punishment flow
         
         # Start user sync loop for filter caching
         from utils.user_sync import run_user_sync_loop
