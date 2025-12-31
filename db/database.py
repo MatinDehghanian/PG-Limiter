@@ -140,9 +140,7 @@ async def init_db():
     Should be called once at application startup.
     """
     # Ensure data directory exists
-    db_path = DATABASE_URL.replace("sqlite+aiosqlite:///", "")
-    if db_path.startswith("./"):
-        db_path = db_path[2:]
+    db_path = _get_db_path()
     
     db_dir = os.path.dirname(db_path)
     if db_dir and not os.path.exists(db_dir):
@@ -151,15 +149,15 @@ async def init_db():
     
     db_logger.debug("🔄 Running database migrations...")
     
-    # Run migrations automatically
-    await run_migrations()
+    # Run migrations (synchronous)
+    _run_migrations_sync()
     
     db_logger.info(f"✅ Database initialized: {DATABASE_URL}")
 
 
-async def run_migrations():
+def _run_migrations_sync():
     """
-    Run Alembic migrations automatically.
+    Run Alembic migrations synchronously.
     Columns are already ensured at module load time by _ensure_db_columns().
     """
     from alembic.config import Config
