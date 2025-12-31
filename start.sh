@@ -183,6 +183,72 @@ fi
 # STEP 4: Run database migrations
 # ═══════════════════════════════════════════════════════════════════════════════
 log_step 4 "Running database migrations..."
+
+# First, ensure all required columns exist (handles upgrades from older versions)
+COLUMN_OUTPUT=$(timeout 30 python -u -c "
+import sqlite3
+import os
+
+db_path = '/var/lib/pg-limiter/data/pg_limiter.db'
+if not os.path.exists(db_path):
+    print('Fresh database, skipping column check')
+    exit(0)
+
+conn = sqlite3.connect(db_path)
+cursor = conn.cursor()
+
+# Check if users table exists
+cursor.execute(\"SELECT name FROM sqlite_master WHERE type='table' AND name='users'\")
+if not cursor.fetchone():
+    print('No users table yet')
+    conn.close()
+    exit(0)
+
+# Get existing columns
+cursor.execute('PRAGMA table_info(users)')
+existing = {row[1] for row in cursor.fetchall()}
+
+# Columns to add
+columns = [
+    ('is_excepted', 'BOOLEAN DEFAULT 0'),
+    ('exception_reason', 'TEXT'),
+    ('excepted_by', 'VARCHAR(255)'),
+    ('excepted_at', 'DATETIME'),
+    ('special_limit', 'INTEGER'),
+    ('special_limit_updated_at', 'DATETIME'),
+    ('is_disabled_by_limiter', 'BOOLEAN DEFAULT 0'),
+    ('disabled_at', 'FLOAT'),
+    ('enable_at', 'FLOAT'),
+    ('original_groups', 'JSON'),
+    ('disable_reason', 'TEXT'),
+    ('punishment_step', 'INTEGER DEFAULT 0'),
+]
+
+added = []
+for name, typ in columns:
+    if name not in existing:
+        try:
+            cursor.execute(f'ALTER TABLE users ADD COLUMN {name} {typ}')
+            added.append(name)
+        except:
+            pass
+
+conn.commit()
+conn.close()
+
+if added:
+    print(f'Added columns: {added}')
+else:
+    print('All columns exist')
+" 2>&1)
+
+if echo "$COLUMN_OUTPUT" | grep -q "Added columns"; then
+    log_info "Database schema updated: $COLUMN_OUTPUT"
+else
+    log_debug "Schema check: $COLUMN_OUTPUT"
+fi
+
+# Now run alembic migrations
 MIGRATION_OUTPUT=$(timeout 30 python -m alembic upgrade head 2>&1)
 MIGRATION_EXIT=$?
 
