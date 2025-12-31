@@ -691,3 +691,114 @@ async def handle_remove_except_user_input(update: Update, context: ContextTypes.
             text=f"❌ Except user <b>{text}</b> not found!",
             reply_markup=create_back_to_users_keyboard()
         )
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# FILTERED USERS HANDLERS
+# ═══════════════════════════════════════════════════════════════════════════════
+
+
+def create_filtered_users_keyboard(users_list: list, page: int = 0, per_page: int = 10):
+    """
+    Create a keyboard with filtered users as buttons.
+    These are users that are monitored but have no special limit or whitelist.
+    
+    Args:
+        users_list: List of User objects
+        page: Current page number (0-indexed)
+        per_page: Number of users per page
+    """
+    keyboard = []
+    total_users = len(users_list)
+    total_pages = max(1, (total_users + per_page - 1) // per_page)
+    
+    # Get current page users
+    start_idx = page * per_page
+    end_idx = min(start_idx + per_page, total_users)
+    page_users = users_list[start_idx:end_idx]
+    
+    # Add user buttons
+    for user in page_users:
+        # Show status indicator
+        if user.is_disabled_by_limiter:
+            status = "🔴"
+        elif user.status == "active":
+            status = "🟢"
+        else:
+            status = "⚪"
+        
+        keyboard.append([
+            InlineKeyboardButton(
+                f"{status} {user.username}",
+                callback_data=f"filtered_info:{user.username}"
+            )
+        ])
+    
+    # Pagination buttons
+    nav_buttons = []
+    if page > 0:
+        nav_buttons.append(InlineKeyboardButton("⬅️ Prev", callback_data=f"filtered_page:{page-1}"))
+    
+    # Page indicator
+    nav_buttons.append(InlineKeyboardButton(f"📄 {page+1}/{total_pages}", callback_data="noop"))
+    
+    if page < total_pages - 1:
+        nav_buttons.append(InlineKeyboardButton("Next ➡️", callback_data=f"filtered_page:{page+1}"))
+    
+    if nav_buttons:
+        keyboard.append(nav_buttons)
+    
+    # Refresh and back buttons
+    keyboard.append([
+        InlineKeyboardButton("🔄 Refresh", callback_data=CallbackData.FILTERED_USERS_MENU),
+    ])
+    keyboard.append([
+        InlineKeyboardButton("« Back to Users", callback_data=CallbackData.BACK_USERS),
+    ])
+    
+    return InlineKeyboardMarkup(keyboard)
+
+
+async def handle_filtered_users_menu(query, _context: ContextTypes.DEFAULT_TYPE, page: int = 0):
+    """Display the filtered users menu - users with no whitelist or special limit."""
+    from db.database import get_db
+    from db.crud.users import UserCRUD
+    
+    try:
+        async with get_db() as db:
+            users = await UserCRUD.get_filtered_users(db)
+        
+        if not users:
+            text = (
+                "👤 <b>Filtered Users</b>\n\n"
+                "ℹ️ No users found.\n\n"
+                "These are users that are being monitored under the "
+                "general limit (no whitelist or special limit)."
+            )
+            keyboard = create_back_to_users_keyboard()
+        else:
+            # Count active/disabled
+            active_count = sum(1 for u in users if not u.is_disabled_by_limiter)
+            disabled_count = sum(1 for u in users if u.is_disabled_by_limiter)
+            
+            text = (
+                f"👤 <b>Filtered Users</b>\n\n"
+                f"📊 Total: <b>{len(users)}</b> users\n"
+                f"🟢 Active: <b>{active_count}</b>\n"
+                f"🔴 Disabled: <b>{disabled_count}</b>\n\n"
+                f"<i>These users are monitored under the general limit "
+                f"(no whitelist or special limit).</i>"
+            )
+            keyboard = create_filtered_users_keyboard(users, page=page)
+        
+        await query.edit_message_text(
+            text=text,
+            reply_markup=keyboard,
+            parse_mode="HTML"
+        )
+    except Exception as e:
+        await query.edit_message_text(
+            text=f"❌ Error loading filtered users: {e}",
+            reply_markup=create_back_to_users_keyboard(),
+            parse_mode="HTML"
+        )

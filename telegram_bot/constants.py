@@ -99,6 +99,8 @@ class CallbackData:
     SHOW_DISABLED_USERS = "show_disabled_users"
     ENABLE_ALL_DISABLED = "enable_all_disabled"
     WHITELIST_MENU = "whitelist_menu"
+    SPECIAL_LIMITS_MENU = "special_limits_menu"
+    FILTERED_USERS_MENU = "filtered_users_menu"
     BACK_USERS = "back_users"
     
     # Admin management

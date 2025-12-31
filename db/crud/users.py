@@ -389,6 +389,24 @@ class UserCRUD:
     # ==================== Bulk Operations ====================
     
     @staticmethod
+    async def get_filtered_users(db: AsyncSession) -> List[User]:
+        """
+        Get users that are being filtered (monitored) but don't have
+        whitelist status or special limits.
+        These are "regular" users under the general limit.
+        """
+        db_users_logger.debug("📋 Getting filtered users (no whitelist, no special limit)")
+        result = await db.execute(
+            select(User).where(
+                User.is_excepted.is_(False),
+                User.special_limit.is_(None)
+            )
+        )
+        users = list(result.scalars().all())
+        db_users_logger.debug(f"✅ Found {len(users)} filtered users")
+        return users
+    
+    @staticmethod
     async def bulk_sync(db: AsyncSession, users_data: List[dict]) -> int:
         """
         Bulk sync users from panel data.

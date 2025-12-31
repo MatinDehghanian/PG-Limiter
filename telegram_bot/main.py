@@ -54,6 +54,7 @@ from telegram_bot.keyboards import (
     create_back_to_main_keyboard,
     create_disable_method_keyboard,
     create_whitelist_menu_keyboard,
+    create_special_limits_menu_keyboard,
 )
 
 # Import handlers
@@ -107,6 +108,7 @@ from telegram_bot.handlers.users import (
     handle_whitelist_page_callback,
     handle_whitelist_info_callback,
     handle_delete_whitelist_callback,
+    handle_filtered_users_menu,
 )
 from telegram_bot.handlers.settings import (
     set_panel_domain,
@@ -424,12 +426,26 @@ async def callback_query_handler(update: Update, context: ContextTypes.DEFAULT_T
     # User management callbacks
     if data == CallbackData.WHITELIST_MENU:
         await query.edit_message_text(
-            text="✅ <b>Whitelist (Except Users)</b>\n\n"
+            text="✅ <b>Whitelist Users</b>\n\n"
                  "Users in the whitelist are excluded from IP limits.\n"
                  "They can have unlimited connections.",
             reply_markup=create_whitelist_menu_keyboard(),
             parse_mode="HTML"
         )
+        return
+    
+    if data == CallbackData.SPECIAL_LIMITS_MENU:
+        await query.edit_message_text(
+            text="🎯 <b>Special Limit Users</b>\n\n"
+                 "Users with custom connection limits.\n"
+                 "These limits override the general limit.",
+            reply_markup=create_special_limits_menu_keyboard(),
+            parse_mode="HTML"
+        )
+        return
+    
+    if data == CallbackData.FILTERED_USERS_MENU:
+        await handle_filtered_users_menu(query, context)
         return
     
     if data == CallbackData.BACK_USERS:
@@ -697,6 +713,18 @@ async def callback_query_handler(update: Update, context: ContextTypes.DEFAULT_T
     if data.startswith("delete_whitelist:"):
         username = data.split(":", 1)[1]
         await handle_delete_whitelist_callback(query, context, username)
+        return
+    
+    # Handle filtered users pagination
+    if data.startswith("filtered_page:"):
+        page = int(data.split(":", 1)[1])
+        await handle_filtered_users_menu(query, context, page)
+        return
+    
+    # Handle filtered user info callback (placeholder - just shows user is monitored)
+    if data.startswith("filtered_info:"):
+        username = data.split(":", 1)[1]
+        await query.answer(f"User {username} - under general limit", show_alert=True)
         return
     
     # Handle admins pagination

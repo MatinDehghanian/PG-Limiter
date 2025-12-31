@@ -15,15 +15,14 @@ def create_main_menu_keyboard():
             InlineKeyboardButton("📊 Reports", callback_data=CallbackData.REPORTS_MENU),
         ],
         [
-            InlineKeyboardButton("🎯 Limits", callback_data=CallbackData.LIMITS_MENU),
             InlineKeyboardButton("👥 Users", callback_data=CallbackData.USERS_MENU),
-        ],
-        [
             InlineKeyboardButton("📡 Monitoring", callback_data=CallbackData.MONITORING_MENU),
-            InlineKeyboardButton("👑 Admins", callback_data=CallbackData.ADMIN_MENU),
         ],
         [
+            InlineKeyboardButton("👑 Admins", callback_data=CallbackData.ADMIN_MENU),
             InlineKeyboardButton("💾 Backup", callback_data=CallbackData.BACKUP),
+        ],
+        [
             InlineKeyboardButton("📥 Restore", callback_data=CallbackData.RESTORE),
         ],
     ]
@@ -75,7 +74,13 @@ def create_users_menu_keyboard():
     """Create the users menu inline keyboard."""
     keyboard = [
         [
-            InlineKeyboardButton("✅ Whitelist (Except Users)", callback_data=CallbackData.WHITELIST_MENU),
+            InlineKeyboardButton("✅ Whitelist Users", callback_data=CallbackData.WHITELIST_MENU),
+        ],
+        [
+            InlineKeyboardButton("🎯 Special Limit Users", callback_data=CallbackData.SPECIAL_LIMITS_MENU),
+        ],
+        [
+            InlineKeyboardButton("👤 Filtered Users", callback_data=CallbackData.FILTERED_USERS_MENU),
         ],
         [
             InlineKeyboardButton("🚫 Disabled Users", callback_data=CallbackData.SHOW_DISABLED_USERS),
@@ -99,6 +104,22 @@ def create_whitelist_menu_keyboard():
         [
             InlineKeyboardButton("➕ Add User", callback_data=CallbackData.SET_EXCEPT_USER),
             InlineKeyboardButton("➖ Remove User", callback_data=CallbackData.REMOVE_EXCEPT_USER),
+        ],
+        [
+            InlineKeyboardButton("🔙 Back to Users", callback_data=CallbackData.BACK_USERS),
+        ],
+    ]
+    return InlineKeyboardMarkup(keyboard)
+
+
+def create_special_limits_menu_keyboard():
+    """Create the special limits submenu keyboard."""
+    keyboard = [
+        [
+            InlineKeyboardButton("📋 Show Special Limits", callback_data=CallbackData.SHOW_SPECIAL_LIMIT),
+        ],
+        [
+            InlineKeyboardButton("🎯 Set Special Limit", callback_data=CallbackData.SET_SPECIAL_LIMIT),
         ],
         [
             InlineKeyboardButton("🔙 Back to Users", callback_data=CallbackData.BACK_USERS),
