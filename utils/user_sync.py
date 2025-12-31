@@ -17,7 +17,7 @@ _last_sync_time: Optional[datetime] = None
 _sync_in_progress: bool = False
 
 
-async def get_all_users_with_details(panel_data: PanelType, status: str | None = "active") -> list[dict]:
+async def get_all_users_with_details(panel_data: PanelType, status: str | None = None) -> list[dict]:
     """
     Fetch all users from panel with their full details (groups, owner, etc.).
     Uses parallel pagination for efficiency with large user bases.
@@ -25,7 +25,7 @@ async def get_all_users_with_details(panel_data: PanelType, status: str | None =
     Args:
         panel_data: Panel connection data
         status: Filter by user status (active/disabled/limited/expired/on_hold).
-                Default is "active" for efficiency. Use None to fetch ALL users.
+                Default is None to fetch ALL users (recommended for sync).
         
     Returns:
         List of user dictionaries with full details
@@ -193,8 +193,8 @@ async def sync_users_to_database(panel_data: PanelType) -> tuple[int, int, int]:
         sync_logger.info("🔄 Starting user sync from panel to database...")
         start_time = datetime.utcnow()
         
-        # Fetch all users from panel
-        users = await get_all_users_with_details(panel_data)
+        # Fetch ALL users from panel (all statuses) to avoid losing disabled users
+        users = await get_all_users_with_details(panel_data, status=None)
         
         if not users:
             sync_logger.warning("⚠️ No users fetched from panel - skipping sync entirely")
