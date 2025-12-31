@@ -245,26 +245,34 @@ class ISPDetector:
             url = f"http://ip-api.com/json/{ip}?fields=status,message,country,countryCode,region,regionName,city,isp,org,as,asname"
             
             session = await self._get_session()
-            async with session.get(url, timeout=10) as response:
-                if response.status == 200:
-                    data = await response.json()
-                    if data.get("status") == "success":
-                        # Prefer asname, fallback to isp, then org
-                        isp_name = data.get("asname") or data.get("isp") or data.get("org", "Unknown ISP")
-                        isp_info = {
-                            "ip": ip,
-                            "isp": isp_name,
-                            "country": data.get("countryCode", "Unknown"),
-                            "city": data.get("city", "Unknown"),
-                            "region": data.get("regionName", "Unknown")
-                        }
-                        logger.info(f"✓ Fallback API success for {ip}: {isp_info['isp']}")
-                        self.cache[ip] = isp_info
-                        return isp_info
+            # Wrap in timeout to prevent hanging
+            async with asyncio.timeout(8):  # 8 second timeout for API call
+                async with session.get(url, timeout=aiohttp.ClientTimeout(total=8)) as response:
+                    if response.status == 200:
+                        data = await response.json()
+                        if data.get("status") == "success":
+                            # Prefer asname, fallback to isp, then org
+                            isp_name = data.get("asname") or data.get("isp") or data.get("org", "Unknown ISP")
+                            isp_info = {
+                                "ip": ip,
+                                "isp": isp_name,
+                                "country": data.get("countryCode", "Unknown"),
+                                "city": data.get("city", "Unknown"),
+                                "region": data.get("regionName", "Unknown")
+                            }
+                            logger.debug(f"✓ Fallback API success for {ip}: {isp_info['isp']}")
+                            self.cache[ip] = isp_info
+                            return isp_info
+                        else:
+                            logger.warning(f"Fallback API returned failure for {ip}: {data.get('message', 'unknown')}")
+                    elif response.status == 429:
+                        logger.warning(f"Fallback API rate limited for {ip}")
                     else:
-                        logger.warning(f"Fallback API returned failure status for {ip}")
+                        logger.warning(f"Fallback API HTTP {response.status} for {ip}")
+        except asyncio.TimeoutError:
+            logger.warning(f"Fallback API timeout for {ip}")
         except Exception as e:
-            logger.error(f"Fallback API failed for {ip}: {e}")
+            logger.warning(f"Fallback API error for {ip}: {type(e).__name__}: {str(e)[:100]}")
         
         # If all fails, return default
         default_info = {
@@ -274,6 +282,7 @@ class ISPDetector:
             "city": "Unknown",
             "region": "Unknown"
         }
+        self.cache[ip] = default_info
         return default_info
     
     async def get_multiple_isp_info(self, ips: list[str]) -> Dict[str, Dict[str, str]]:
@@ -349,7 +358,11 @@ class ISPDetector:
             async def bounded_get_isp_info(ip: str):
                 async with semaphore:
                     try:
-                        result = await self.get_isp_info(ip)
+                        # Wrap in timeout to prevent individual IP from hanging
+                        result = await asyncio.wait_for(
+                            self.get_isp_info(ip),
+                            timeout=12  # 12 second timeout per IP
+                        )
                         # Save to database cache
                         if result.get("isp") != "Unknown ISP" and self._db_cache:
                             try:
@@ -363,10 +376,13 @@ class ISPDetector:
                                         region=result.get("region")
                                     )
                             except Exception as e:
-                                logger.warning(f"Failed to cache ISP for {ip}: {e}")
+                                logger.debug(f"DB cache failed for {ip}: {e}")
                         return result
+                    except asyncio.TimeoutError:
+                        logger.warning(f"Timeout for {ip}, using default")
+                        return {"ip": ip, "isp": "Unknown ISP", "country": "Unknown", "city": "Unknown", "region": "Unknown"}
                     except Exception as e:
-                        logger.error(f"Error getting ISP for {ip}: {e}")
+                        logger.warning(f"Error for {ip}: {type(e).__name__}")
                         return {"ip": ip, "isp": "Unknown ISP", "country": "Unknown", "city": "Unknown", "region": "Unknown"}
             
             # Process in smaller batches with longer delays to respect rate limits
@@ -378,17 +394,25 @@ class ISPDetector:
             for i in range(0, len(uncached_ips), batch_size):
                 batch = uncached_ips[i:i + batch_size]
                 batch_num = (i // batch_size) + 1
-                logger.info(f"🔍 ISP batch {batch_num}/{total_batches}: processing {len(batch)} IPs...")
+                logger.info(f"🔍 ISP batch {batch_num}/{total_batches}: {len(batch)} IPs...")
                 
-                tasks = [bounded_get_isp_info(ip) for ip in batch]
                 try:
-                    await asyncio.wait_for(
+                    tasks = [bounded_get_isp_info(ip) for ip in batch]
+                    # Use asyncio.gather with return_exceptions to handle errors gracefully
+                    results = await asyncio.wait_for(
                         asyncio.gather(*tasks, return_exceptions=True),
-                        timeout=30  # 30 second timeout per batch
+                        timeout=40  # 40 second timeout per batch (5 IPs * 12s + buffer)
                     )
-                    logger.info(f"✅ Batch {batch_num}/{total_batches} complete")
+                    # Check for exceptions in results
+                    failed = sum(1 for r in results if isinstance(r, Exception))
+                    if failed > 0:
+                        logger.warning(f"⚠️ Batch {batch_num}: {failed}/{len(batch)} failed")
+                    else:
+                        logger.info(f"✅ Batch {batch_num}/{total_batches} complete")
                 except asyncio.TimeoutError:
-                    logger.warning(f"⚠️ ISP batch {batch_num} timed out after 30s")
+                    logger.warning(f"⚠️ Batch {batch_num} timed out, continuing...")
+                except Exception as e:
+                    logger.error(f"⚠️ Batch {batch_num} error: {type(e).__name__}, continuing...")
                 
                 # Delay between batches to respect rate limits (2 seconds)
                 if i + batch_size < len(uncached_ips):
