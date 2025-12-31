@@ -1013,97 +1013,28 @@ async def enable_dis_user(panel_data: PanelType):
 
 async def cleanup_deleted_users(panel_data: PanelType) -> dict:
     """
-    Clean up users from limiter config that no longer exist in the panel.
-
+    DISABLED: This function is currently disabled as it was incorrectly removing valid users.
+    
+    The function was checking against old JSON config format while special limits
+    are now stored in the database, causing it to incorrectly identify users
+    as "deleted" when they actually exist.
+    
+    Use the Telegram bot's "Review Pending Deletions" feature instead:
+    Settings -> User Sync Settings -> Review Pending Deletions
+    
     Args:
         panel_data (PanelType): A PanelType object containing
         the username, password, and domain for the panel API.
 
     Returns:
-        dict: A summary of cleaned up users with keys for each category.
+        dict: Empty result as function is disabled.
     """
-    users_logger.info("🧹 Starting cleanup of deleted users...")
-    result = {
+    users_logger.warning("⚠️ cleanup_deleted_users is DISABLED - use Telegram bot instead")
+    users_logger.warning("📱 Telegram: Settings -> User Sync -> Review Pending Deletions")
+    return {
         "special_limits_removed": [],
         "except_users_removed": [],
         "disabled_users_removed": [],
         "user_groups_backup_removed": [],
+        "error": "Function disabled - was removing valid users. Use Telegram bot instead."
     }
-    
-    try:
-        panel_users = await get_all_panel_users(panel_data)
-        users_logger.info(f"🧹 Found {len(panel_users)} users in panel")
-        
-        if len(panel_users) == 0:
-            users_logger.error("No users found in panel - aborting cleanup to prevent data loss")
-            raise ValueError("No users found in panel. API may be unreachable or returning empty data.")
-        
-        data = await read_config()
-        config_changed = False
-        
-        special_limits = data.get("limits", {}).get("special", {})
-        if special_limits:
-            users_to_remove = [u for u in special_limits.keys() if u not in panel_users]
-            if len(users_to_remove) > len(special_limits) * 0.5 and len(users_to_remove) > 5:
-                users_logger.warning(f"Would remove {len(users_to_remove)} of {len(special_limits)} special limits - this seems too many!")
-                users_logger.warning(f"Panel returned {len(panel_users)} users. First 10: {list(panel_users)[:10]}")
-                raise ValueError(f"Safety check failed: Would remove {len(users_to_remove)} of {len(special_limits)} users.")
-        
-        special_limits = data.get("limits", {}).get("special", {})
-        if special_limits:
-            users_to_remove = []
-            for username in special_limits.keys():
-                if username not in panel_users:
-                    users_to_remove.append(username)
-            
-            for username in users_to_remove:
-                del data["limits"]["special"][username]
-                result["special_limits_removed"].append(username)
-                config_changed = True
-                users_logger.info(f"🧹 Removed deleted user from special limits: {username}")
-        
-        except_users = data.get("limits", {}).get("except_users", [])
-        if except_users:
-            new_except_users = [u for u in except_users if u in panel_users]
-            removed = [u for u in except_users if u not in panel_users]
-            if removed:
-                data["limits"]["except_users"] = new_except_users
-                result["except_users_removed"] = removed
-                config_changed = True
-                for username in removed:
-                    users_logger.info(f"🧹 Removed deleted user from except_users: {username}")
-        
-        if config_changed:
-            from telegram_bot.utils import write_json_file
-            await write_json_file(data)
-            users_logger.info("🧹 Config file updated")
-        
-        dis_obj = DisabledUsers()
-        disabled_list = list(dis_obj.disabled_users.keys())
-        for username in disabled_list:
-            if username not in panel_users:
-                await dis_obj.remove_user(username)
-                result["disabled_users_removed"].append(username)
-                users_logger.info(f"🧹 Removed deleted user from disabled_users: {username}")
-        
-        groups_storage = UserGroupsStorage()
-        saved_users = await groups_storage.get_all_users_with_saved_groups()
-        for username in saved_users:
-            if username not in panel_users:
-                await groups_storage.remove_user(username)
-                result["user_groups_backup_removed"].append(username)
-                users_logger.info(f"🧹 Removed deleted user from user groups backup: {username}")
-        
-        total_removed = (
-            len(result["special_limits_removed"]) +
-            len(result["except_users_removed"]) +
-            len(result["disabled_users_removed"]) +
-            len(result["user_groups_backup_removed"])
-        )
-        users_logger.info(f"🧹 Cleanup complete. Total removed: {total_removed}")
-        
-        return result
-        
-    except Exception as e:
-        users_logger.error(f"Error during cleanup: {e}")
-        raise
