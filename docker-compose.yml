@@ -18,8 +18,14 @@ services:
     environment:
       - TZ=${TZ:-UTC}
       - REDIS_URL=redis://redis:6379
+      - PYTHONUNBUFFERED=1
     mem_limit: 512m
     memswap_limit: 512m
+    logging:
+      driver: "local"
+      options:
+        max-size: "100m"
+        max-file: "5"
   
   redis:
     image: redis:7-alpine
