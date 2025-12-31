@@ -163,9 +163,14 @@ async def check_ip_used() -> dict:
     
     config_data = await read_config()
     general_limit = config_data.get("limits", {}).get("general", 2)
-    special_limit = config_data.get("limits", {}).get("special", {})
     except_users = config_data.get("except_users", [])  # except_users is at root level
     show_enhanced_details = config_data.get("display", {}).get("show_enhanced_details", True)
+    
+    # Read special limits from database instead of config
+    from db.database import async_session_maker
+    from db.crud import UserCRUD
+    async with async_session_maker() as db:
+        special_limit = await UserCRUD.get_all_special_limits(db)
     
     # Get panel data for filter checks
     panel_config = config_data.get("panel", {})
@@ -466,8 +471,13 @@ async def check_users_usage(panel_data: PanelType):
     api_config = config_data.get("api", {})
     
     except_users = config_data.get("except_users", [])  # except_users is at root level
-    special_limit = limits_config.get("special", {})
     limit_number = limits_config.get("general", 2)
+    
+    # Read special limits from database instead of config
+    from db.database import async_session_maker
+    from db.crud import UserCRUD
+    async with async_session_maker() as db:
+        special_limit = await UserCRUD.get_all_special_limits(db)
     
     # Initialize ISP detector if not already done
     if isp_detector is None:
