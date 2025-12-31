@@ -121,25 +121,28 @@ async def get_all_users_with_details(panel_data: PanelType) -> list[dict]:
     return all_users
 
 
-async def sync_users_to_database(panel_data: PanelType) -> tuple[int, int]:
+async def sync_users_to_database(panel_data: PanelType) -> tuple[int, int, int]:
     """
     Sync all users from panel to local database.
+    Also detects users deleted from panel and removes them from limiter.
     
     Args:
         panel_data: Panel connection data
         
     Returns:
-        Tuple of (synced_count, error_count)
+        Tuple of (synced_count, error_count, deleted_count)
     """
     global _last_sync_time, _sync_in_progress
     
     if _sync_in_progress:
         sync_logger.warning("Sync already in progress, skipping")
-        return (0, 0)
+        return (0, 0, 0)
     
     _sync_in_progress = True
     synced = 0
     errors = 0
+    deleted = 0
+    deleted_usernames = []
     
     try:
         from db.database import get_db
@@ -153,11 +156,26 @@ async def sync_users_to_database(panel_data: PanelType) -> tuple[int, int]:
         
         if not users:
             sync_logger.warning("No users fetched from panel")
-            return (0, 0)
+            return (0, 0, 0)
         
         sync_logger.info(f"📥 Processing {len(users)} users...")
         
+        # Build set of usernames from panel
+        panel_usernames = {u.get("username") for u in users if u.get("username")}
+        
         async with get_db() as db:
+            # Get existing usernames in local DB
+            local_usernames = await UserCRUD.get_all_usernames(db)
+            
+            # Find users that exist in local DB but not in panel (deleted from panel)
+            deleted_usernames = list(local_usernames - panel_usernames)
+            
+            # Delete users that were removed from panel
+            if deleted_usernames:
+                sync_logger.info(f"🗑️ Found {len(deleted_usernames)} users deleted from panel")
+                deleted = await UserCRUD.delete_many(db, deleted_usernames)
+            
+            # Sync users from panel
             for user_data in users:
                 try:
                     username = user_data.get("username")
@@ -235,16 +253,46 @@ async def sync_users_to_database(panel_data: PanelType) -> tuple[int, int]:
         _last_sync_time = datetime.utcnow()
         
         sync_logger.info(
-            f"✅ User sync completed: {synced} synced, {errors} errors "
-            f"in {elapsed:.1f}s"
+            f"✅ User sync completed: {synced} synced, {deleted} deleted, "
+            f"{errors} errors in {elapsed:.1f}s"
         )
+        
+        # Send Telegram notification for deleted users
+        if deleted_usernames:
+            await _notify_deleted_users(deleted_usernames)
         
     except Exception as e:
         sync_logger.error(f"User sync failed: {e}")
     finally:
         _sync_in_progress = False
     
-    return (synced, errors)
+    return (synced, errors, deleted)
+
+
+async def _notify_deleted_users(usernames: list[str]) -> None:
+    """Send Telegram notification for users deleted from panel."""
+    try:
+        from telegram_bot.send_message import send_logs
+        
+        if len(usernames) <= 10:
+            user_list = "\n".join(f"• <code>{u}</code>" for u in usernames)
+        else:
+            user_list = "\n".join(f"• <code>{u}</code>" for u in usernames[:10])
+            user_list += f"\n... and {len(usernames) - 10} more"
+        
+        message = (
+            "🗑️ <b>Users Deleted from Panel</b>\n\n"
+            "The following users were deleted from panel and "
+            "have been removed from PG-Limiter:\n\n"
+            f"{user_list}\n\n"
+            f"📊 Total: {len(usernames)} users"
+        )
+        
+        await send_logs(message)
+        sync_logger.info(f"📤 Sent notification for {len(usernames)} deleted users")
+        
+    except Exception as e:
+        sync_logger.error(f"Failed to send deletion notification: {e}")
 
 
 async def get_user_from_cache(username: str) -> Optional[dict]:
