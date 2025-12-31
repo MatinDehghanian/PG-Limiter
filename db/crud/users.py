@@ -202,7 +202,7 @@ class UserCRUD:
     async def get_all_excepted(db: AsyncSession) -> List[str]:
         """Get all excepted usernames."""
         db_users_logger.debug("📋 Getting all excepted usernames")
-        result = await db.execute(select(User).where(User.is_excepted == True))  # noqa: E712
+        result = await db.execute(select(User).where(User.is_excepted.is_(True)))
         users = [u.username for u in result.scalars().all()]
         db_users_logger.debug(f"✅ Found {len(users)} excepted users")
         return users
@@ -211,7 +211,7 @@ class UserCRUD:
     async def get_all_excepted_with_details(db: AsyncSession) -> List[User]:
         """Get all excepted users with full details."""
         db_users_logger.debug("📋 Getting all excepted users with details")
-        result = await db.execute(select(User).where(User.is_excepted == True))  # noqa: E712
+        result = await db.execute(select(User).where(User.is_excepted.is_(True)))
         users = list(result.scalars().all())
         db_users_logger.debug(f"✅ Retrieved {len(users)} excepted users")
         return users
@@ -337,7 +337,7 @@ class UserCRUD:
         """Get all users disabled by limiter."""
         db_users_logger.debug("📋 Getting all disabled users")
         result = await db.execute(
-            select(User).where(User.is_disabled_by_limiter == True)  # noqa: E712
+            select(User).where(User.is_disabled_by_limiter.is_(True))
         )
         users = list(result.scalars().all())
         db_users_logger.debug(f"✅ Found {len(users)} disabled users")
@@ -348,7 +348,7 @@ class UserCRUD:
         """Get all disabled users as {username: disabled_timestamp} dict."""
         db_users_logger.debug("📋 Getting disabled users as dict")
         result = await db.execute(
-            select(User).where(User.is_disabled_by_limiter == True)  # noqa: E712
+            select(User).where(User.is_disabled_by_limiter.is_(True))
         )
         users = result.scalars().all()
         return {u.username: u.disabled_at for u in users if u.disabled_at}
@@ -369,7 +369,7 @@ class UserCRUD:
         cutoff = current_time - time_to_active
         
         result = await db.execute(
-            select(User).where(User.is_disabled_by_limiter == True)  # noqa: E712
+            select(User).where(User.is_disabled_by_limiter.is_(True))
         )
         disabled_users = result.scalars().all()
         

@@ -92,7 +92,7 @@ class DisabledUserCRUD:
         from sqlalchemy import update
         from db.models import User
         result = await db.execute(
-            update(User).where(User.is_disabled_by_limiter == True).values(  # noqa: E712
+            update(User).where(User.is_disabled_by_limiter.is_(True)).values(
                 is_disabled_by_limiter=False,
                 disabled_at=None,
                 enable_at=None,
