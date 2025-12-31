@@ -4,6 +4,7 @@ Uses async SQLAlchemy with aiosqlite for SQLite.
 """
 
 import os
+import sqlite3
 from contextlib import asynccontextmanager
 from typing import AsyncGenerator
 
@@ -24,6 +25,85 @@ DATABASE_URL = os.environ.get(
     "DATABASE_URL",
     "sqlite+aiosqlite:///./data/pg_limiter.db"
 )
+
+
+def _get_db_path() -> str:
+    """Get the SQLite database file path."""
+    db_path = DATABASE_URL.replace("sqlite+aiosqlite:///", "")
+    if db_path.startswith("./"):
+        db_path = db_path[2:]
+    return db_path
+
+
+def _ensure_db_columns():
+    """
+    Ensure all required columns exist in the database.
+    This runs SYNCHRONOUSLY at module load time, before any async operations.
+    """
+    db_path = _get_db_path()
+    
+    # Ensure data directory exists
+    db_dir = os.path.dirname(db_path)
+    if db_dir and not os.path.exists(db_dir):
+        os.makedirs(db_dir, exist_ok=True)
+    
+    if not os.path.exists(db_path):
+        return  # Fresh DB, will be created by migrations
+    
+    try:
+        conn = sqlite3.connect(db_path)
+        cursor = conn.cursor()
+        
+        # Check if users table exists
+        cursor.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='users'"
+        )
+        if not cursor.fetchone():
+            conn.close()
+            return  # No users table yet
+        
+        # Get existing columns
+        cursor.execute("PRAGMA table_info(users)")
+        existing_columns = {row[1] for row in cursor.fetchall()}
+        
+        # Define columns to add
+        columns_to_add = [
+            ("is_excepted", "BOOLEAN DEFAULT 0"),
+            ("exception_reason", "TEXT"),
+            ("excepted_by", "VARCHAR(255)"),
+            ("excepted_at", "DATETIME"),
+            ("special_limit", "INTEGER"),
+            ("special_limit_updated_at", "DATETIME"),
+            ("is_disabled_by_limiter", "BOOLEAN DEFAULT 0"),
+            ("disabled_at", "FLOAT"),
+            ("enable_at", "FLOAT"),
+            ("original_groups", "JSON"),
+            ("disable_reason", "TEXT"),
+            ("punishment_step", "INTEGER DEFAULT 0"),
+        ]
+        
+        added = []
+        for col_name, col_type in columns_to_add:
+            if col_name not in existing_columns:
+                try:
+                    cursor.execute(f"ALTER TABLE users ADD COLUMN {col_name} {col_type}")
+                    added.append(col_name)
+                except sqlite3.OperationalError:
+                    pass  # Column might already exist
+        
+        if added:
+            db_logger.info(f"📌 Added missing columns to users table: {', '.join(added)}")
+        
+        conn.commit()
+        conn.close()
+        
+    except Exception as e:
+        db_logger.warning(f"Column check failed: {e}")
+
+
+# Run column check immediately at module load time
+_ensure_db_columns()
+
 
 # For SQLite, use StaticPool for better async support
 if DATABASE_URL.startswith("sqlite"):
@@ -80,114 +160,35 @@ async def init_db():
 async def run_migrations():
     """
     Run Alembic migrations automatically.
-    Handles existing databases that were created before migrations were added.
+    Columns are already ensured at module load time by _ensure_db_columns().
     """
-    import sqlite3
     from alembic.config import Config
     from alembic import command
     
-    # Get the database file path
-    db_path = DATABASE_URL.replace("sqlite+aiosqlite:///", "")
-    if db_path.startswith("./"):
-        db_path = db_path[2:]
-    
-    # Get alembic config
+    db_path = _get_db_path()
     alembic_cfg = Config("alembic.ini")
     
     try:
-        if os.path.exists(db_path):
-            conn = sqlite3.connect(db_path)
-            cursor = conn.cursor()
-            
-            # Check if users table exists
-            cursor.execute(
-                "SELECT name FROM sqlite_master WHERE type='table' AND name='users'"
-            )
-            has_users = cursor.fetchone() is not None
-            
-            # Check if users table has the new consolidated columns
-            has_new_columns = False
-            if has_users:
-                cursor.execute("PRAGMA table_info(users)")
-                columns = {row[1] for row in cursor.fetchall()}
-                has_new_columns = "is_excepted" in columns
-            
-            conn.close()
-            
-            if has_users and not has_new_columns:
-                # Database exists but missing new columns - add them directly
-                db_logger.info("📌 Adding missing columns to users table...")
-                _add_missing_columns(db_path)
-                db_logger.info("✅ Columns added successfully")
-                
-                # Stamp at latest migration
-                try:
-                    command.stamp(alembic_cfg, "002_consolidate_users")
-                except Exception:
-                    pass  # Ignore stamp errors
-            else:
-                # Try normal upgrade
-                try:
-                    command.upgrade(alembic_cfg, "head")
-                except Exception as e:
-                    if "already exists" in str(e):
-                        # Tables exist, try to stamp and continue
-                        try:
-                            command.stamp(alembic_cfg, "head")
-                        except Exception:
-                            pass
-                    else:
-                        db_logger.warning(f"Migration upgrade issue: {e}")
-        else:
-            # Fresh database - just run migrations
+        if not os.path.exists(db_path):
+            # Fresh database - create with migrations
             db_logger.info("🔄 Creating new database with migrations...")
             command.upgrade(alembic_cfg, "head")
-            
-    except Exception as e:
-        db_logger.warning(f"Migration handling: {e}")
-        # Fallback: ensure columns exist
-        if os.path.exists(db_path):
-            _add_missing_columns(db_path)
-
-
-def _add_missing_columns(db_path: str):
-    """Add missing consolidated columns to users table."""
-    import sqlite3
-    
-    conn = sqlite3.connect(db_path)
-    cursor = conn.cursor()
-    
-    # Get existing columns
-    cursor.execute("PRAGMA table_info(users)")
-    existing_columns = {row[1] for row in cursor.fetchall()}
-    
-    # Define columns to add
-    columns_to_add = [
-        ("is_excepted", "BOOLEAN DEFAULT 0"),
-        ("exception_reason", "TEXT"),
-        ("excepted_by", "VARCHAR(255)"),
-        ("excepted_at", "DATETIME"),
-        ("special_limit", "INTEGER"),
-        ("special_limit_updated_at", "DATETIME"),
-        ("is_disabled_by_limiter", "BOOLEAN DEFAULT 0"),
-        ("disabled_at", "FLOAT"),
-        ("enable_at", "FLOAT"),
-        ("original_groups", "JSON"),
-        ("disable_reason", "TEXT"),
-        ("punishment_step", "INTEGER DEFAULT 0"),
-    ]
-    
-    for col_name, col_type in columns_to_add:
-        if col_name not in existing_columns:
+        else:
+            # Existing database - try to upgrade, handle errors gracefully
             try:
-                cursor.execute(f"ALTER TABLE users ADD COLUMN {col_name} {col_type}")
-                db_logger.debug(f"  Added column: {col_name}")
-            except sqlite3.OperationalError as e:
-                if "duplicate column" not in str(e).lower():
-                    db_logger.warning(f"  Could not add {col_name}: {e}")
-    
-    conn.commit()
-    conn.close()
+                command.upgrade(alembic_cfg, "head")
+            except Exception as e:
+                error_msg = str(e).lower()
+                if "already exists" in error_msg or "duplicate" in error_msg:
+                    # Tables/columns already exist, stamp as current
+                    try:
+                        command.stamp(alembic_cfg, "head")
+                    except Exception:
+                        pass
+                else:
+                    db_logger.debug(f"Migration note: {e}")
+    except Exception as e:
+        db_logger.debug(f"Migration handling: {e}")
 
 
 async def close_db():
