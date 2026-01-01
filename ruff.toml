@@ -1,0 +1,63 @@
+# Ruff configuration for PG-Limiter
+
+# Target Python version
+target-version = "py311"
+
+# Line length
+line-length = 120
+
+# Exclude paths
+exclude = [
+    ".git",
+    "__pycache__",
+    ".venv",
+    "venv",
+    "node_modules",
+    "*.egg-info",
+    "dist",
+    "build",
+    "db/migrations/versions/*.py",
+]
+
+[lint]
+# Enable rules - starting with essential ones
+select = [
+    "E",      # pycodestyle errors
+    "W",      # pycodestyle warnings
+    "F",      # Pyflakes
+]
+
+# Ignore specific rules
+ignore = [
+    "E501",   # Line too long (handled by formatter)
+    "E402",   # Module level import not at top of file
+    "E721",   # Type comparison
+    "E722",   # Bare except
+    "F401",   # Unused import (too many to fix now)
+    "F541",   # f-string missing placeholders
+    "F811",   # Redefinition of unused name
+    "F841",   # Local variable assigned but never used
+    "W291",   # Trailing whitespace
+    "W292",   # No newline at end of file
+    "W293",   # Blank line contains whitespace
+]
+
+# Allow autofix for all enabled rules
+fixable = ["ALL"]
+unfixable = []
+
+# Per-file ignores
+[lint.per-file-ignores]
+"tests/*" = ["ALL"]
+"db/migrations/*" = ["ALL"]
+"__init__.py" = ["F401", "E501"]
+
+[format]
+# Use double quotes
+quote-style = "double"
+# Indent with spaces
+indent-style = "space"
+# Respect magic trailing commas
+skip-magic-trailing-comma = false
+# Unix line endings
+line-ending = "auto"

@@ -115,12 +115,15 @@ async def get_all_users_with_details(panel_data: PanelType, status: str | None =
                             
                             semaphore = asyncio.Semaphore(max_concurrent)
                             
-                            async def fetch_with_semaphore(offset: int):
-                                async with semaphore:
-                                    users, _ = await fetch_page(client, url, headers, offset)
-                                    return users
+                            def make_fetcher(sem, cli, u, hdrs):
+                                async def fetch_with_semaphore(offset: int):
+                                    async with sem:
+                                        users, _ = await fetch_page(cli, u, hdrs, offset)
+                                        return users
+                                return fetch_with_semaphore
                             
-                            tasks = [fetch_with_semaphore(offset) for offset in offsets]
+                            fetcher = make_fetcher(semaphore, client, url, headers)
+                            tasks = [fetcher(offset) for offset in offsets]
                             pages = await asyncio.gather(*tasks, return_exceptions=True)
                             
                             # Combine all pages
