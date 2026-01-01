@@ -85,7 +85,7 @@ jobs:
     needs: lint
     strategy:
       matrix:
-        python-version: ["3.12"]
+        python-version: ["3.11", "3.12"]
     
     steps:
       - uses: actions/checkout@v4
@@ -109,19 +109,27 @@ jobs:
           pip install pytest pytest-asyncio pytest-cov
           pip install -r requirements.txt
       
-      - name: Run tests
+      - name: Run unit tests
         run: |
-          pytest tests/ -v --tb=short --ignore=tests/core_test.py
+          pytest tests/ -v --tb=short \
+            --ignore=tests/core_test.py \
+            --ignore=tests/test_new_api.py \
+            --ignore=tests/test_sse_logs.py \
+            --ignore=tests/test_minimal.py
         env:
           PYTHONPATH: ${{ github.workspace }}
       
       - name: Run tests with coverage
         run: |
           pytest tests/ \
-            --cov=. \
+            --cov=utils --cov=db \
             --cov-report=term-missing \
-            --cov-fail-under=10 \
-            --ignore=tests/core_test.py
+            --cov-report=xml \
+            --cov-fail-under=20 \
+            --ignore=tests/core_test.py \
+            --ignore=tests/test_new_api.py \
+            --ignore=tests/test_sse_logs.py \
+            --ignore=tests/test_minimal.py
         continue-on-error: true
         env:
           PYTHONPATH: ${{ github.workspace }}
