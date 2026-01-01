@@ -736,8 +736,33 @@ async def enable_user_by_group(panel_data: PanelType, username: str) -> bool:
         original_groups = await groups_storage.get_user_groups(username)
         
         if original_groups is None:
-            users_logger.warning(f"No saved groups found for user {username}, cannot restore")
-            return False
+            users_logger.warning(f"No saved groups found for user {username}, will clear disabled group")
+            # Get config to check if user is in disabled group
+            data = await read_config()
+            disabled_group_id = data.get("disabled_group_id", None)
+            
+            if disabled_group_id is not None:
+                # Get current user details
+                user_data = await get_user_details(panel_data, username)
+                if user_data:
+                    current_groups = user_data.get("group_ids", [])
+                    # If user is in disabled group, remove them from it
+                    if disabled_group_id in current_groups:
+                        users_logger.info(f"👥 User {username} is in disabled group {disabled_group_id}, removing...")
+                        # Set groups to empty (or you could set to some default group)
+                        new_groups = [g for g in current_groups if g != disabled_group_id]
+                        group_success = await update_user_groups(panel_data, username, new_groups)
+                        status_success = await enable_user_by_status(panel_data, username)
+                        if group_success and status_success:
+                            log_user_action("ENABLE", username, f"removed from disabled group, status active", success=True)
+                            users_logger.info(f"✅ Enabled user: {username} (removed from disabled group, status active)")
+                            return True
+                        elif status_success:
+                            log_user_action("ENABLE", username, f"status active, group change failed", success=True)
+                            users_logger.warning(f"⚠️ Enabled user: {username} (status active, but group change failed)")
+                            return True
+            # Fallback to status-only enable
+            return await enable_user_by_status(panel_data, username)
         
         users_logger.debug(f"👥 Restoring original groups for {username}: {original_groups}")
         group_success = await update_user_groups(panel_data, username, original_groups)
@@ -794,22 +819,13 @@ async def enable_selected_users(
         success = False
         
         if use_group_method:
-            groups_storage = UserGroupsStorage()
-            has_saved_groups = await groups_storage.has_saved_groups(username)
-            
-            if has_saved_groups:
-                success = await enable_user_by_group(panel_data, username)
-                if success:
-                    message = f"Enabled user (restored groups): {username}"
-                    await safe_send_logs_panel(message)
-                    enabled_count += 1
-            else:
-                users_logger.warning(f"No saved groups for {username}, using status-based enable")
-                success = await enable_user_by_status(panel_data, username)
-                if success:
-                    message = f"Enabled user: {username}"
-                    await safe_send_logs_panel(message)
-                    enabled_count += 1
+            # Always try group-based enable when using group method
+            # enable_user_by_group now handles cases with and without saved groups
+            success = await enable_user_by_group(panel_data, username)
+            if success:
+                message = f"Enabled user (group method): {username}"
+                await safe_send_logs_panel(message)
+                enabled_count += 1
         else:
             success = await enable_user_by_status(panel_data, username)
             if success:
