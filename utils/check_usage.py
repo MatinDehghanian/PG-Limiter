@@ -8,7 +8,7 @@ import asyncio
 import ipaddress
 from collections import Counter
 
-from telegram_bot.send_message import send_logs, send_user_message
+from telegram_bot.send_message import send_logs, send_user_message, send_active_users_log
 from utils.logs import logger
 from utils.panel_api import disable_user
 from utils.read_config import read_config, get_config_value
@@ -408,19 +408,19 @@ async def check_ip_used() -> dict:
         
         if len(full_message) > 4000:
             # Send in chunks
-            await send_logs(header)
+            await send_active_users_log(header)
             chunk = ""
             for block in combined_message_parts:
                 if len(chunk) + len(block) + 2 > 3900:
-                    await send_logs(chunk)
+                    await send_active_users_log(chunk)
                     await asyncio.sleep(0.3)
                     chunk = block
                 else:
                     chunk = chunk + "\n\n" + block if chunk else block
             if chunk:
-                await send_logs(chunk)
+                await send_active_users_log(chunk)
         else:
-            await send_logs(full_message)
+            await send_active_users_log(full_message)
     
     # Send SEPARATE action messages for users who need limit setting
     # (users without special limit and not in except list)
@@ -450,7 +450,7 @@ async def check_ip_used() -> dict:
     if monitoring_summary:
         try:
             await asyncio.sleep(1)
-            await send_logs(monitoring_summary)
+            await send_active_users_log(monitoring_summary)
         except Exception as e:
             logger.error(f"Failed to send monitoring summary: {e}")
     

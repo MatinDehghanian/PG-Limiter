@@ -67,6 +67,25 @@ async def run_telegram_bot():
             telegram_runner_logger.info(f"✓ Connected as @{bot_info.username} (ID: {bot_info.id})")
         except Exception as e:
             telegram_runner_logger.warning(f"Could not get bot info: {e}")
+        
+        # Schedule automatic backup every 6 hours
+        try:
+            from telegram_bot.handlers.backup import send_automatic_backup
+            
+            job_queue = application.job_queue
+            if job_queue:
+                # Run backup every 6 hours (21600 seconds)
+                job_queue.run_repeating(
+                    lambda context: send_automatic_backup(),
+                    interval=21600,  # 6 hours
+                    first=21600,  # Start first backup in 6 hours
+                    name="automatic_backup"
+                )
+                telegram_runner_logger.info("✓ Automatic backup scheduled (every 6 hours)")
+            else:
+                telegram_runner_logger.warning("⚠️ Job queue not available, automatic backup disabled")
+        except Exception as e:
+            telegram_runner_logger.warning(f"⚠️ Could not schedule automatic backup: {e}")
             
     except RuntimeError as e:
         if "already running" in str(e).lower():

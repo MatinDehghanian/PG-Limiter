@@ -600,6 +600,27 @@ async def callback_query_handler(update: Update, context: ContextTypes.DEFAULT_T
         await handle_force_delete_callback(query, context)
         return
     
+    # Topics callbacks
+    if data == CallbackData.TOPICS_MENU:
+        from telegram_bot.handlers.topics_settings import handle_topics_menu_callback
+        await handle_topics_menu_callback(query, context)
+        return
+    
+    if data == CallbackData.TOPICS_TOGGLE:
+        from telegram_bot.handlers.topics_settings import handle_topics_toggle_callback
+        await handle_topics_toggle_callback(query, context)
+        return
+    
+    if data == CallbackData.TOPICS_SETUP:
+        from telegram_bot.handlers.topics_settings import handle_topics_setup_callback
+        await handle_topics_setup_callback(query, context)
+        return
+    
+    if data == CallbackData.TOPICS_CLEAR:
+        from telegram_bot.handlers.topics_settings import handle_topics_clear_callback
+        await handle_topics_clear_callback(query, context)
+        return
+    
     # Back to settings callback
     if data == CallbackData.BACK_SETTINGS:
         await query.edit_message_text(

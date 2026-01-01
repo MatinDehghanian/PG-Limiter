@@ -590,3 +590,89 @@ async def migrate_backup_cancel(update: Update, _context: ContextTypes.DEFAULT_T
     """Cancel the migration process."""
     await update.message.reply_text("❌ Migration cancelled.")
     return ConversationHandler.END
+
+
+async def send_automatic_backup():
+    """
+    Send an automatic backup to all admins.
+    Called by scheduler every 6 hours.
+    """
+    from telegram_bot.main import application
+    from telegram_bot.utils import check_admin
+    from telegram_bot.topics import TopicType, get_topics_manager
+    
+    backup_logger.info("📦 Creating automatic backup...")
+    
+    try:
+        # Create temp directory for backup
+        temp_dir = tempfile.mkdtemp()
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        zip_name = f"pg-limiter-auto-backup-{timestamp}.zip"
+        zip_path = os.path.join(temp_dir, zip_name)
+        
+        with zipfile.ZipFile(zip_path, 'w', zipfile.ZIP_DEFLATED) as zipf:
+            # Check Docker mounted config directory
+            docker_config_dir = "/etc/opt/pg-limiter"
+            if os.path.exists(docker_config_dir):
+                for filename in os.listdir(docker_config_dir):
+                    filepath = os.path.join(docker_config_dir, filename)
+                    if os.path.isfile(filepath):
+                        zipf.write(filepath, f"config/{filename}")
+            
+            if os.path.exists(".env"):
+                zipf.write(".env", "config/.env")
+            
+            # Add data files
+            data_dirs = ["/var/lib/pg-limiter/data", "data"]
+            for data_dir in data_dirs:
+                if os.path.exists(data_dir) and os.path.isdir(data_dir):
+                    for root, _, files in os.walk(data_dir):
+                        for file in files:
+                            filepath = os.path.join(root, file)
+                            arcname = os.path.join("data", os.path.relpath(filepath, data_dir))
+                            zipf.write(filepath, arcname)
+                    break
+            
+            # Add legacy files
+            for legacy_file in [".disable_users.json", ".violation_history.json", ".user_groups_backup.json"]:
+                if os.path.exists(legacy_file):
+                    zipf.write(legacy_file, f"legacy/{legacy_file}")
+            
+            # Add backup info
+            backup_info = f"""PG-Limiter Automatic Backup
+Created: {datetime.now().isoformat()}
+Type: Automatic (scheduled every 6 hours)
+"""
+            zipf.writestr("backup_info.txt", backup_info)
+        
+        # Send to all admins
+        admins = await check_admin()
+        topics_manager = get_topics_manager()
+        
+        for admin in admins:
+            thread_id = topics_manager.get_topic_id(admin, TopicType.BACKUPS)
+            try:
+                with open(zip_path, 'rb') as f:
+                    await application.bot.send_document(
+                        chat_id=admin,
+                        document=f,
+                        filename=zip_name,
+                        caption=(
+                            "💾 <b>Automatic Backup</b>\n\n"
+                            f"🕐 Time: <code>{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}</code>\n"
+                            "📁 Includes: Config, Database, Legacy files\n\n"
+                            "💡 <i>Backups are sent every 6 hours</i>"
+                        ),
+                        parse_mode="HTML",
+                        message_thread_id=thread_id
+                    )
+                backup_logger.info(f"✅ Automatic backup sent to admin {admin}")
+            except Exception as e:
+                backup_logger.error(f"❌ Failed to send backup to admin {admin}: {e}")
+        
+        # Cleanup
+        shutil.rmtree(temp_dir)
+        backup_logger.info("✅ Automatic backup completed successfully")
+        
+    except Exception as e:
+        backup_logger.error(f"❌ Automatic backup failed: {e}")

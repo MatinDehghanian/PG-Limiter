@@ -16,6 +16,7 @@ from utils.types import PanelType, UserType
 from utils.warning_system.user_warning import UserWarning
 from utils.warning_system.helpers import (
     safe_send_logs,
+    safe_send_warning_log,
     safe_send_disable_notification,
     safe_disable_user_with_punishment,
 )
@@ -292,7 +293,7 @@ class EnhancedWarningSystem:
                 punishment_result = await safe_disable_user_with_punishment(panel_data, UserType(name=username, ip=[]))
                 
                 if punishment_result["action"] == "warning":
-                    await safe_send_logs(
+                    await safe_send_warning_log(
                         f"⚠️ <b>WARNING (Instant)</b> - {time_str}\n\n"
                         f"User: <code>{username}</code>\n"
                         f"Active IPs: <code>{ip_count}</code>\n"
@@ -362,7 +363,7 @@ class EnhancedWarningSystem:
         time_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         limit_text = f"User limit: <code>{user_limit}</code>\n" if user_limit else ""
         
-        await safe_send_logs(
+        await safe_send_warning_log(
             f"⚠️ <b>WARNING</b> - {time_str}\n\n"
             f"User: <code>{username}</code>\n"
             f"Active IPs: <code>{ip_count}</code>\n"
@@ -456,7 +457,7 @@ class EnhancedWarningSystem:
                             await self.add_to_warning_history(username)
                             
                             if punishment_result["action"] == "warning":
-                                await safe_send_logs(
+                                await safe_send_warning_log(
                                     f"⚠️ <b>WARNING</b> - {time_str}\n\n"
                                     f"User: <code>{username}</code>\n"
                                     f"Confirmed Devices: <code>{device_count}</code> (active 2+ min)\n"

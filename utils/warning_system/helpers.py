@@ -9,17 +9,33 @@ from utils.types import PanelType, UserType
 helpers_logger = get_logger("warning_helpers")
 
 
-async def safe_send_logs(message: str):
-    """Safely send logs, handling import errors gracefully"""
+async def safe_send_logs(message: str, is_warning: bool = False):
+    """
+    Safely send logs, handling import errors gracefully.
+    
+    Args:
+        message: The message to send
+        is_warning: If True, send to warnings topic
+    """
     try:
-        from telegram_bot.send_message import send_logs
-        helpers_logger.debug(f"📤 Sending Telegram log message ({len(message)} chars)")
-        await send_logs(message)
+        if is_warning:
+            from telegram_bot.send_message import send_warning_log
+            helpers_logger.debug(f"📤 Sending warning log message ({len(message)} chars)")
+            await send_warning_log(message)
+        else:
+            from telegram_bot.send_message import send_logs
+            helpers_logger.debug(f"📤 Sending Telegram log message ({len(message)} chars)")
+            await send_logs(message)
         helpers_logger.debug("✅ Telegram log sent successfully")
     except ImportError as e:
         helpers_logger.warning(f"⚠️ Telegram not configured: {e}")
     except Exception as e:
         helpers_logger.error(f"❌ Failed to send telegram message: {e}")
+
+
+async def safe_send_warning_log(message: str):
+    """Safely send warning log to warnings topic."""
+    await safe_send_logs(message, is_warning=True)
 
 
 async def safe_send_disable_notification(message: str, username: str):

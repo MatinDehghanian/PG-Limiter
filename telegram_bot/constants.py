@@ -166,6 +166,12 @@ class CallbackData:
     USER_SYNC_PENDING = "user_sync_pending"  # Review pending deletions
     USER_SYNC_FORCE_DELETE = "user_sync_force_delete"  # Force delete pending users
     
+    # Topics settings
+    TOPICS_MENU = "topics_menu"
+    TOPICS_TOGGLE = "topics_toggle"
+    TOPICS_SETUP = "topics_setup"
+    TOPICS_CLEAR = "topics_clear"
+    
     # Cleanup
     CLEANUP_DELETED_USERS = "cleanup_deleted_users"
     
