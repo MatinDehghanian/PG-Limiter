@@ -696,9 +696,21 @@ async def callback_query_handler(update: Update, context: ContextTypes.DEFAULT_T
         await punishment_remove_step(update, context, step_index)
         return
     
-    # Handle step info callbacks (just show info, no action)
-    if data.startswith("punishment_step_info:"):
-        await query.answer("Click 🗑️ to remove this step", show_alert=False)
+    # Handle edit step callbacks (click on step to edit)
+    if data.startswith("punishment_edit_step:"):
+        step_index = int(data.split(":")[1])
+        from telegram_bot.handlers.punishment import punishment_edit_step
+        await punishment_edit_step(update, context, step_index)
+        return
+    
+    # Handle update step callbacks (apply new type/duration to step)
+    if data.startswith("punishment_update_step:"):
+        parts = data.split(":")
+        step_index = int(parts[1])
+        step_type = parts[2]
+        duration = int(parts[3])
+        from telegram_bot.handlers.punishment import punishment_update_step
+        await punishment_update_step(update, context, step_index, step_type, duration)
         return
     
     # Group filter callbacks

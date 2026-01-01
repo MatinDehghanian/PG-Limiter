@@ -722,6 +722,7 @@ async def enable_user_by_status(panel_data: PanelType, username: str) -> bool:
 async def enable_user_by_group(panel_data: PanelType, username: str) -> bool:
     """
     Enable a user by restoring their original groups and setting status to active.
+    Combines both operations into a single API request.
 
     Args:
         panel_data (PanelType): Panel connection data.
@@ -749,34 +750,24 @@ async def enable_user_by_group(panel_data: PanelType, username: str) -> bool:
                     # If user is in disabled group, remove them from it
                     if disabled_group_id in current_groups:
                         users_logger.info(f"👥 User {username} is in disabled group {disabled_group_id}, removing...")
-                        # Set groups to empty (or you could set to some default group)
                         new_groups = [g for g in current_groups if g != disabled_group_id]
-                        group_success = await update_user_groups(panel_data, username, new_groups)
-                        status_success = await enable_user_by_status(panel_data, username)
-                        if group_success and status_success:
+                        # Combined API call: set both group_ids and status in one request
+                        success = await _update_user_groups_and_status(panel_data, username, new_groups, "active")
+                        if success:
                             log_user_action("ENABLE", username, f"removed from disabled group, status active", success=True)
                             users_logger.info(f"✅ Enabled user: {username} (removed from disabled group, status active)")
-                            return True
-                        elif status_success:
-                            log_user_action("ENABLE", username, f"status active, group change failed", success=True)
-                            users_logger.warning(f"⚠️ Enabled user: {username} (status active, but group change failed)")
                             return True
             # Fallback to status-only enable
             return await enable_user_by_status(panel_data, username)
         
         users_logger.debug(f"👥 Restoring original groups for {username}: {original_groups}")
-        group_success = await update_user_groups(panel_data, username, original_groups)
-        status_success = await enable_user_by_status(panel_data, username)
+        # Combined API call: set both group_ids and status in one request
+        success = await _update_user_groups_and_status(panel_data, username, original_groups, "active")
         
-        if group_success and status_success:
+        if success:
             await groups_storage.remove_user(username)
             log_user_action("ENABLE", username, f"restored groups {original_groups}, status active", success=True)
             users_logger.info(f"✅ Enabled user by group: {username} (restored groups {original_groups}, status active)")
-            return True
-        elif group_success:
-            await groups_storage.remove_user(username)
-            log_user_action("ENABLE", username, f"restored groups {original_groups}, status change failed", success=True)
-            users_logger.warning(f"✅ Enabled user by group: {username} (restored groups {original_groups}, but status change failed)")
             return True
         log_user_action("ENABLE", username, "Failed to restore groups", success=False)
         return False
@@ -784,6 +775,64 @@ async def enable_user_by_group(panel_data: PanelType, username: str) -> bool:
         users_logger.error(f"Error enabling user by group: {error}")
         log_user_action("ENABLE", username, str(error), success=False)
         return False
+
+
+async def _update_user_groups_and_status(panel_data: PanelType, username: str, group_ids: list[int], status: str) -> bool:
+    """
+    Internal helper to update both user groups and status in a single API call.
+    
+    Args:
+        panel_data: Panel connection data.
+        username: The username to update.
+        group_ids: List of group IDs to set.
+        status: Status to set ("active" or "disabled").
+    
+    Returns:
+        bool: True if successful, False otherwise.
+    """
+    max_attempts = 5
+    for attempt in range(max_attempts):
+        force_refresh = attempt > 0
+        get_panel_token = await get_token(panel_data, force_refresh=force_refresh)
+        if isinstance(get_panel_token, ValueError):
+            raise get_panel_token
+        token = get_panel_token.panel_token
+        headers = {"Authorization": f"Bearer {token}"}
+        payload = {"group_ids": group_ids, "status": status}
+        
+        for scheme in ["https", "http"]:
+            url = f"{scheme}://{panel_data.panel_domain}/api/user/{username}"
+            start_time = time.perf_counter()
+            try:
+                async with httpx.AsyncClient(verify=False) as client:
+                    response = await client.put(url, json=payload, headers=headers, timeout=10)
+                    elapsed = (time.perf_counter() - start_time) * 1000
+                    response.raise_for_status()
+                log_api_request("PUT", url, response.status_code, elapsed)
+                users_logger.debug(f"Updated user {username}: groups={group_ids}, status={status} [{elapsed:.0f}ms]")
+                return True
+            except SSLError:
+                elapsed = (time.perf_counter() - start_time) * 1000
+                log_api_request("PUT", url, None, elapsed, "SSL Error")
+                continue
+            except httpx.HTTPStatusError:
+                elapsed = (time.perf_counter() - start_time) * 1000
+                if response.status_code == 401:
+                    await invalidate_token_cache()
+                log_api_request("PUT", url, response.status_code, elapsed, f"HTTP {response.status_code}")
+                continue
+            except httpx.TimeoutException:
+                elapsed = (time.perf_counter() - start_time) * 1000
+                log_api_request("PUT", url, None, elapsed, "Timeout")
+                continue
+            except Exception as error:
+                elapsed = (time.perf_counter() - start_time) * 1000
+                log_api_request("PUT", url, None, elapsed, str(error))
+                users_logger.error(f"Error updating user: {error}")
+                continue
+        wait_time = min(30, random.randint(2, 5) * (attempt + 1))
+        await asyncio.sleep(wait_time)
+    return False
 
 
 async def enable_selected_users(
@@ -905,6 +954,7 @@ async def disable_user_by_status(panel_data: PanelType, username: str) -> bool:
 async def disable_user_by_group(panel_data: PanelType, username: str, disabled_group_id: int) -> bool:
     """
     Disable a user by moving them to the disabled group and setting status to disabled.
+    Combines both operations into a single API request.
 
     Args:
         panel_data (PanelType): Panel connection data.
@@ -927,17 +977,52 @@ async def disable_user_by_group(panel_data: PanelType, username: str, disabled_g
         groups_storage = UserGroupsStorage()
         await groups_storage.save_user_groups(username, current_groups)
         
-        group_success = await update_user_groups(panel_data, username, [disabled_group_id])
-        status_success = await disable_user_by_status(panel_data, username)
+        # Combined API call: set both group_ids and status in one request
+        max_attempts = 5
+        for attempt in range(max_attempts):
+            force_refresh = attempt > 0
+            get_panel_token = await get_token(panel_data, force_refresh=force_refresh)
+            if isinstance(get_panel_token, ValueError):
+                raise get_panel_token
+            token = get_panel_token.panel_token
+            headers = {"Authorization": f"Bearer {token}"}
+            # Combine group_ids and status in a single payload
+            payload = {"group_ids": [disabled_group_id], "status": "disabled"}
+            
+            for scheme in ["https", "http"]:
+                url = f"{scheme}://{panel_data.panel_domain}/api/user/{username}"
+                start_time = time.perf_counter()
+                try:
+                    async with httpx.AsyncClient(verify=False) as client:
+                        response = await client.put(url, json=payload, headers=headers, timeout=10)
+                        elapsed = (time.perf_counter() - start_time) * 1000
+                        response.raise_for_status()
+                    log_api_request("PUT", url, response.status_code, elapsed)
+                    log_user_action("DISABLE", username, f"moved to group {disabled_group_id}, status disabled", success=True)
+                    users_logger.info(f"🚫 Disabled user by group: {username} (moved to group {disabled_group_id}, status disabled) [{elapsed:.0f}ms]")
+                    return True
+                except SSLError:
+                    elapsed = (time.perf_counter() - start_time) * 1000
+                    log_api_request("PUT", url, None, elapsed, "SSL Error")
+                    continue
+                except httpx.HTTPStatusError:
+                    elapsed = (time.perf_counter() - start_time) * 1000
+                    if response.status_code == 401:
+                        await invalidate_token_cache()
+                    log_api_request("PUT", url, response.status_code, elapsed, f"HTTP {response.status_code}")
+                    continue
+                except httpx.TimeoutException:
+                    elapsed = (time.perf_counter() - start_time) * 1000
+                    log_api_request("PUT", url, None, elapsed, "Timeout")
+                    continue
+                except Exception as error:
+                    elapsed = (time.perf_counter() - start_time) * 1000
+                    log_api_request("PUT", url, None, elapsed, str(error))
+                    users_logger.error(f"Error disabling user: {error}")
+                    continue
+            wait_time = min(30, random.randint(2, 5) * (attempt + 1))
+            await asyncio.sleep(wait_time)
         
-        if group_success and status_success:
-            log_user_action("DISABLE", username, f"moved to group {disabled_group_id}, status disabled", success=True)
-            users_logger.info(f"🚫 Disabled user by group: {username} (moved to group {disabled_group_id}, status disabled)")
-            return True
-        elif group_success:
-            log_user_action("DISABLE", username, f"moved to group {disabled_group_id}, status change failed", success=True)
-            users_logger.warning(f"🚫 Disabled user by group: {username} (moved to group {disabled_group_id}, but status change failed)")
-            return True
         log_user_action("DISABLE", username, "Failed to move to disabled group", success=False)
         return False
     except Exception as error:

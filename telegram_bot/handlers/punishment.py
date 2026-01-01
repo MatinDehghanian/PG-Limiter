@@ -88,9 +88,9 @@ def create_steps_menu_keyboard(steps: list):
         else:
             text = f"{i+1}. 🔒 {duration}m"
         
-        # Each step shows info, clicking removes it
+        # Each step is clickable to edit, with a delete button
         keyboard.append([
-            InlineKeyboardButton(text, callback_data=f"punishment_step_info:{i}"),
+            InlineKeyboardButton(text, callback_data=f"punishment_edit_step:{i}"),
             InlineKeyboardButton("🗑️", callback_data=f"punishment_remove_step:{i}")
         ])
     
@@ -120,6 +120,60 @@ def create_add_step_keyboard():
         ],
         [InlineKeyboardButton("🚫 Unlimited", callback_data=CallbackData.PUNISHMENT_STEP_DISABLE_UNLIMITED)],
         [InlineKeyboardButton("« Back", callback_data=CallbackData.PUNISHMENT_STEPS)],
+    ]
+    return InlineKeyboardMarkup(keyboard)
+
+
+def create_edit_step_keyboard(step_index: int, step: dict):
+    """Create keyboard for editing a specific step."""
+    step_type = step.get("type", "disable")
+    duration = step.get("duration", 0)
+    
+    # Show current value with checkmark
+    current_text = ""
+    if step_type == "warning":
+        current_text = "Current: ⚠️ Warning"
+    elif duration == 0:
+        current_text = "Current: 🚫 Unlimited"
+    else:
+        current_text = f"Current: 🔒 {duration}m"
+    
+    keyboard = [
+        # Warning option
+        [InlineKeyboardButton(
+            "✅ ⚠️ Warning" if step_type == "warning" else "⚠️ Warning",
+            callback_data=f"punishment_update_step:{step_index}:warning:0"
+        )],
+        # Timed disable options
+        [
+            InlineKeyboardButton(
+                "✅ 🔒 10m" if (step_type == "disable" and duration == 10) else "🔒 10m",
+                callback_data=f"punishment_update_step:{step_index}:disable:10"
+            ),
+            InlineKeyboardButton(
+                "✅ 🔒 30m" if (step_type == "disable" and duration == 30) else "🔒 30m",
+                callback_data=f"punishment_update_step:{step_index}:disable:30"
+            ),
+        ],
+        [
+            InlineKeyboardButton(
+                "✅ 🔒 60m" if (step_type == "disable" and duration == 60) else "🔒 60m",
+                callback_data=f"punishment_update_step:{step_index}:disable:60"
+            ),
+            InlineKeyboardButton(
+                "✅ 🔒 240m" if (step_type == "disable" and duration == 240) else "🔒 240m",
+                callback_data=f"punishment_update_step:{step_index}:disable:240"
+            ),
+        ],
+        # Unlimited option
+        [InlineKeyboardButton(
+            "✅ 🚫 Unlimited" if (step_type == "disable" and duration == 0) else "🚫 Unlimited",
+            callback_data=f"punishment_update_step:{step_index}:disable:0"
+        )],
+        # Delete this step
+        [InlineKeyboardButton("🗑️ Delete This Step", callback_data=f"punishment_remove_step:{step_index}")],
+        # Back to steps list
+        [InlineKeyboardButton("« Back to Steps", callback_data=CallbackData.PUNISHMENT_STEPS)],
     ]
     return InlineKeyboardMarkup(keyboard)
 
@@ -340,6 +394,93 @@ async def punishment_remove_step(update: Update, context: ContextTypes.DEFAULT_T
             else:
                 config_data["punishment"]["steps"] = steps
             
+            await write_json_file(config_data)
+        
+        # Return to steps menu
+        await punishment_set_steps(update, context)
+
+    except Exception as e:
+        await _send_response(update, f"❌ Error: {str(e)}")
+
+    return ConversationHandler.END
+
+
+async def punishment_edit_step(update: Update, context: ContextTypes.DEFAULT_TYPE, step_index: int):
+    """Show edit menu for a specific step."""
+    check = await check_admin_privilege(update)
+    if check:
+        return check
+
+    try:
+        config_data = await read_config()
+        steps = config_data.get("punishment", {}).get("steps", [])
+        
+        # Use default steps if none are configured
+        if not steps:
+            steps = [
+                {"type": "warning", "duration": 0},
+                {"type": "disable", "duration": 10},
+                {"type": "disable", "duration": 30},
+                {"type": "disable", "duration": 60},
+                {"type": "disable", "duration": 0}
+            ]
+        
+        if 0 <= step_index < len(steps):
+            step = steps[step_index]
+            step_type = step.get("type", "disable")
+            duration = step.get("duration", 0)
+            
+            # Show current value description
+            if step_type == "warning":
+                current_desc = "⚠️ Warning (no disable)"
+            elif duration == 0:
+                current_desc = "🚫 Unlimited disable"
+            else:
+                current_desc = f"🔒 Disable for {duration} minutes"
+            
+            message = (
+                f"✏️ <b>Edit Step {step_index + 1}</b>\n\n"
+                f"Current: {current_desc}\n\n"
+                f"Select a new punishment type:"
+            )
+            
+            await _send_response(update, message, create_edit_step_keyboard(step_index, step))
+        else:
+            await _send_response(update, "❌ Invalid step index")
+
+    except Exception as e:
+        await _send_response(update, f"❌ Error: {str(e)}")
+
+    return ConversationHandler.END
+
+
+async def punishment_update_step(update: Update, context: ContextTypes.DEFAULT_TYPE, step_index: int, step_type: str, duration: int):
+    """Update an existing punishment step."""
+    check = await check_admin_privilege(update)
+    if check:
+        return check
+
+    try:
+        config_data = await read_config()
+        
+        if "punishment" not in config_data:
+            config_data["punishment"] = {"enabled": True, "window_hours": 72, "steps": []}
+        
+        steps = config_data["punishment"].get("steps", [])
+        
+        # Use default steps if none are configured
+        if not steps:
+            steps = [
+                {"type": "warning", "duration": 0},
+                {"type": "disable", "duration": 10},
+                {"type": "disable", "duration": 30},
+                {"type": "disable", "duration": 60},
+                {"type": "disable", "duration": 0}
+            ]
+        
+        if 0 <= step_index < len(steps):
+            steps[step_index] = {"type": step_type, "duration": duration}
+            config_data["punishment"]["steps"] = steps
             await write_json_file(config_data)
         
         # Return to steps menu
