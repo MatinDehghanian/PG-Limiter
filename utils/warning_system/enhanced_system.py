@@ -405,15 +405,16 @@ class EnhancedWarningSystem:
                 subnets.add(ip)
         return subnets
     
-    async def check_persistent_violations(self, panel_data: PanelType, all_users_actual_ips: Dict[str, Set[str]], config_data: dict) -> Set[str]:
+    async def check_persistent_violations(self, panel_data: PanelType, all_users_actual_ips: Dict[str, Set[str]], config_data: dict) -> tuple[Set[str], Set[str]]:
         """
         Check for users who still violate limits after 3-minute warning period.
         Uses device counting: only IPs active for 2+ minutes count as devices.
         
         Returns:
-            Set[str]: Set of users who were disabled
+            Tuple[Set[str], Set[str]]: (disabled_users, warned_users) - sets of users who were disabled or warned
         """
         disabled_users = set()
+        warned_users = set()  # Track users who received warnings to prevent double processing
         users_to_remove = []
         
         limits_config = config_data.get("limits", {})
@@ -466,6 +467,7 @@ class EnhancedWarningSystem:
                                 )
                                 warning_logger.warning(f"⚠️ WARNING: User {username} - {device_count} devices (limit: {user_limit_number}) - violation #{punishment_result['violation_count']}")
                                 log_monitoring_event("persistent_warning", username, {"devices": device_count, "limit": user_limit_number, "violation": punishment_result['violation_count']})
+                                warned_users.add(username)  # Track warned users to prevent double processing
                             elif punishment_result["action"] == "disabled":
                                 disabled_users.add(username)
                                 
@@ -539,7 +541,7 @@ class EnhancedWarningSystem:
         if users_to_remove:
             await self.save_warnings()
         
-        return disabled_users
+        return disabled_users, warned_users
     
     async def send_monitoring_status(self):
         """Send status of currently monitored users"""

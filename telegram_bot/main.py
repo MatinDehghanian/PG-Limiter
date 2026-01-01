@@ -626,6 +626,81 @@ async def callback_query_handler(update: Update, context: ContextTypes.DEFAULT_T
         await punishment_set_steps(update, context)
         return
     
+    # Punishment window hour selection callbacks
+    if data == CallbackData.PUNISHMENT_WINDOW_24:
+        from telegram_bot.handlers.punishment import punishment_set_window_hours
+        await punishment_set_window_hours(update, context, 24)
+        return
+    
+    if data == CallbackData.PUNISHMENT_WINDOW_48:
+        from telegram_bot.handlers.punishment import punishment_set_window_hours
+        await punishment_set_window_hours(update, context, 48)
+        return
+    
+    if data == CallbackData.PUNISHMENT_WINDOW_72:
+        from telegram_bot.handlers.punishment import punishment_set_window_hours
+        await punishment_set_window_hours(update, context, 72)
+        return
+    
+    if data == CallbackData.PUNISHMENT_WINDOW_168:
+        from telegram_bot.handlers.punishment import punishment_set_window_hours
+        await punishment_set_window_hours(update, context, 168)
+        return
+    
+    # Punishment steps callbacks
+    if data == CallbackData.PUNISHMENT_ADD_STEP:
+        from telegram_bot.handlers.punishment import punishment_add_step_menu
+        await punishment_add_step_menu(update, context)
+        return
+    
+    if data == CallbackData.PUNISHMENT_STEPS_RESET:
+        from telegram_bot.handlers.punishment import punishment_reset_steps
+        await punishment_reset_steps(update, context)
+        return
+    
+    # Punishment step type callbacks
+    if data == CallbackData.PUNISHMENT_STEP_WARNING:
+        from telegram_bot.handlers.punishment import punishment_add_step
+        await punishment_add_step(update, context, "warning", 0)
+        return
+    
+    if data == CallbackData.PUNISHMENT_STEP_DISABLE_10:
+        from telegram_bot.handlers.punishment import punishment_add_step
+        await punishment_add_step(update, context, "disable", 10)
+        return
+    
+    if data == CallbackData.PUNISHMENT_STEP_DISABLE_30:
+        from telegram_bot.handlers.punishment import punishment_add_step
+        await punishment_add_step(update, context, "disable", 30)
+        return
+    
+    if data == CallbackData.PUNISHMENT_STEP_DISABLE_60:
+        from telegram_bot.handlers.punishment import punishment_add_step
+        await punishment_add_step(update, context, "disable", 60)
+        return
+    
+    if data == CallbackData.PUNISHMENT_STEP_DISABLE_240:
+        from telegram_bot.handlers.punishment import punishment_add_step
+        await punishment_add_step(update, context, "disable", 240)
+        return
+    
+    if data == CallbackData.PUNISHMENT_STEP_DISABLE_UNLIMITED:
+        from telegram_bot.handlers.punishment import punishment_add_step
+        await punishment_add_step(update, context, "disable", 0)
+        return
+    
+    # Handle remove step callbacks
+    if data.startswith("punishment_remove_step:"):
+        step_index = int(data.split(":")[1])
+        from telegram_bot.handlers.punishment import punishment_remove_step
+        await punishment_remove_step(update, context, step_index)
+        return
+    
+    # Handle step info callbacks (just show info, no action)
+    if data.startswith("punishment_step_info:"):
+        await query.answer("Click 🗑️ to remove this step", show_alert=False)
+        return
+    
     # Group filter callbacks
     if data == CallbackData.GROUP_FILTER_MENU:
         await handle_group_filter_menu_callback(query, context)

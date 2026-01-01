@@ -130,7 +130,19 @@ class CallbackData:
     PUNISHMENT_WINDOW_24 = "punishment_window_24"
     PUNISHMENT_WINDOW_48 = "punishment_window_48"
     PUNISHMENT_WINDOW_72 = "punishment_window_72"
+    PUNISHMENT_WINDOW_168 = "punishment_window_168"
     PUNISHMENT_WINDOW_CUSTOM = "punishment_window_custom"
+    # Punishment steps configuration
+    PUNISHMENT_ADD_STEP = "punishment_add_step"
+    PUNISHMENT_REMOVE_STEP = "punishment_remove_step"
+    PUNISHMENT_STEP_WARNING = "punishment_step_warning"
+    PUNISHMENT_STEP_DISABLE_10 = "punishment_step_disable_10"
+    PUNISHMENT_STEP_DISABLE_30 = "punishment_step_disable_30"
+    PUNISHMENT_STEP_DISABLE_60 = "punishment_step_disable_60"
+    PUNISHMENT_STEP_DISABLE_240 = "punishment_step_disable_240"
+    PUNISHMENT_STEP_DISABLE_UNLIMITED = "punishment_step_disable_unlimited"
+    PUNISHMENT_STEPS_RESET = "punishment_steps_reset"
+    PUNISHMENT_BACK = "punishment_back"
     
     # Group filter
     GROUP_FILTER_MENU = "group_filter_menu"

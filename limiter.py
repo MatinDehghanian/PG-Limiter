@@ -32,7 +32,7 @@ try:
 except ImportError:
     REDIS_AVAILABLE = False
 
-VERSION = "0.7.5"
+VERSION = "0.7.6"
 
 # Main logger
 main_logger = get_logger("limiter.main")
@@ -143,7 +143,10 @@ async def main():
         main_logger.debug("  └─ Started: handle_cancel_all")
         
         # Enable disabled user task is now part of check_usage.py punishment system
-        # No separate task needed as it's handled by the warning/punishment flow
+        # Start the enable_dis_user loop to auto-enable users after punishment time passes
+        from utils.panel_api import enable_dis_user
+        tg.create_task(enable_dis_user(panel_data), name="enable_disabled_users")
+        main_logger.debug("  └─ Started: enable_disabled_users")
         
         # Start user sync loop for filter caching
         from utils.user_sync import run_user_sync_loop

@@ -528,9 +528,13 @@ async def check_users_usage(panel_data: PanelType):
     
     # Check for users who still violate limits after warning period
     # Pass actual IPs, not formatted display strings
-    disabled_users = await warning_system.check_persistent_violations(
+    disabled_users, warned_users = await warning_system.check_persistent_violations(
         panel_data, all_users_actual_ips, config_data
     )
+    
+    # Combine disabled and warned users to skip them in the loop
+    # This prevents double processing in the same cycle
+    processed_users = disabled_users | warned_users
     
     # Check current violations for ALL users (not just those in all_users_log)
     # Track users skipped due to group filter or admin filter
@@ -538,7 +542,7 @@ async def check_users_usage(panel_data: PanelType):
     admin_filtered_users = set()
     
     for user_name, unique_ips in all_users_actual_ips.items():
-        if user_name not in except_users and user_name not in disabled_users:
+        if user_name not in except_users and user_name not in processed_users:
             # Check group filter - skip users not in monitored groups
             should_limit, skip_reason = await should_limit_user(panel_data, user_name, config_data)
             if not should_limit:

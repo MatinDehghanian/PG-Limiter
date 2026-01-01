@@ -3,8 +3,6 @@ Punishment system handlers for the Telegram bot.
 Includes functions for managing the smart punishment system.
 """
 
-import json
-
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
     ContextTypes,
@@ -13,7 +11,7 @@ from telegram.ext import (
 
 from telegram_bot.handlers.admin import check_admin_privilege
 from telegram_bot.utils import write_json_file
-from telegram_bot.keyboards import create_back_to_main_keyboard
+from telegram_bot.constants import CallbackData
 from utils.read_config import read_config
 
 
@@ -42,14 +40,86 @@ async def _send_response(update: Update, text: str, reply_markup=None):
         )
 
 
-def create_punishment_menu_keyboard():
-    """Create punishment menu keyboard."""
-    from telegram_bot.constants import CallbackData
+def create_punishment_menu_keyboard(enabled: bool = True):
+    """Create punishment menu keyboard with current status."""
+    toggle_text = "🔴 Disable" if enabled else "🟢 Enable"
     keyboard = [
-        [InlineKeyboardButton("🔄 Toggle On/Off", callback_data=CallbackData.PUNISHMENT_TOGGLE)],
+        [InlineKeyboardButton(toggle_text, callback_data=CallbackData.PUNISHMENT_TOGGLE)],
         [InlineKeyboardButton("⏰ Set Window", callback_data=CallbackData.PUNISHMENT_WINDOW)],
         [InlineKeyboardButton("📋 Configure Steps", callback_data=CallbackData.PUNISHMENT_STEPS)],
-        [InlineKeyboardButton("« Back", callback_data=CallbackData.BACK_MAIN)],
+        [InlineKeyboardButton("« Back", callback_data=CallbackData.BACK_SETTINGS)],
+    ]
+    return InlineKeyboardMarkup(keyboard)
+
+
+def create_window_selection_keyboard(current_hours: int = 72):
+    """Create window hours selection keyboard."""
+    def btn(hours: int, callback: str):
+        mark = "✓ " if hours == current_hours else ""
+        return InlineKeyboardButton(f"{mark}{hours}h", callback_data=callback)
+    
+    keyboard = [
+        [
+            btn(24, CallbackData.PUNISHMENT_WINDOW_24),
+            btn(48, CallbackData.PUNISHMENT_WINDOW_48),
+        ],
+        [
+            btn(72, CallbackData.PUNISHMENT_WINDOW_72),
+            btn(168, CallbackData.PUNISHMENT_WINDOW_168),
+        ],
+        [InlineKeyboardButton("« Back", callback_data=CallbackData.PUNISHMENT_MENU)],
+    ]
+    return InlineKeyboardMarkup(keyboard)
+
+
+def create_steps_menu_keyboard(steps: list):
+    """Create steps configuration menu keyboard."""
+    keyboard = []
+    
+    # Show current steps
+    for i, step in enumerate(steps):
+        step_type = step.get("type", "disable")
+        duration = step.get("duration", 0)
+        
+        if step_type == "warning":
+            text = f"{i+1}. ⚠️ Warning"
+        elif duration == 0:
+            text = f"{i+1}. 🚫 Unlimited"
+        else:
+            text = f"{i+1}. 🔒 {duration}m"
+        
+        # Each step shows info, clicking removes it
+        keyboard.append([
+            InlineKeyboardButton(text, callback_data=f"punishment_step_info:{i}"),
+            InlineKeyboardButton("🗑️", callback_data=f"punishment_remove_step:{i}")
+        ])
+    
+    # Add step button
+    if len(steps) < 10:  # Max 10 steps
+        keyboard.append([InlineKeyboardButton("➕ Add Step", callback_data=CallbackData.PUNISHMENT_ADD_STEP)])
+    
+    # Reset to defaults
+    keyboard.append([InlineKeyboardButton("🔄 Reset to Defaults", callback_data=CallbackData.PUNISHMENT_STEPS_RESET)])
+    
+    keyboard.append([InlineKeyboardButton("« Back", callback_data=CallbackData.PUNISHMENT_MENU)])
+    
+    return InlineKeyboardMarkup(keyboard)
+
+
+def create_add_step_keyboard():
+    """Create keyboard for adding a new step."""
+    keyboard = [
+        [InlineKeyboardButton("⚠️ Warning", callback_data=CallbackData.PUNISHMENT_STEP_WARNING)],
+        [
+            InlineKeyboardButton("🔒 10m", callback_data=CallbackData.PUNISHMENT_STEP_DISABLE_10),
+            InlineKeyboardButton("🔒 30m", callback_data=CallbackData.PUNISHMENT_STEP_DISABLE_30),
+        ],
+        [
+            InlineKeyboardButton("🔒 60m", callback_data=CallbackData.PUNISHMENT_STEP_DISABLE_60),
+            InlineKeyboardButton("🔒 240m", callback_data=CallbackData.PUNISHMENT_STEP_DISABLE_240),
+        ],
+        [InlineKeyboardButton("🚫 Unlimited", callback_data=CallbackData.PUNISHMENT_STEP_DISABLE_UNLIMITED)],
+        [InlineKeyboardButton("« Back", callback_data=CallbackData.PUNISHMENT_STEPS)],
     ]
     return InlineKeyboardMarkup(keyboard)
 
@@ -80,16 +150,10 @@ async def punishment_status(update: Update, _context: ContextTypes.DEFAULT_TYPE)
             f"Status: {enabled_text}\n"
             f"Time Window: <code>{system.window_hours} hours</code>\n\n"
             f"<b>Punishment Steps:</b>\n"
-            f"{chr(10).join(steps_text)}\n\n"
-            f"<b>Commands:</b>\n"
-            f"/punishment_toggle - Enable/disable\n"
-            f"/punishment_set_window - Set time window\n"
-            f"/punishment_set_steps - Configure steps\n"
-            f"/user_violations &lt;username&gt; - Check user\n"
-            f"/clear_user_violations &lt;username&gt; - Clear history"
+            f"{chr(10).join(steps_text)}"
         )
 
-        await _send_response(update, message, create_punishment_menu_keyboard())
+        await _send_response(update, message, create_punishment_menu_keyboard(system.enabled))
 
     except Exception as e:
         await _send_response(update, f"❌ Error: {str(e)}")
@@ -114,12 +178,8 @@ async def punishment_toggle(update: Update, _context: ContextTypes.DEFAULT_TYPE)
 
         await write_json_file(config_data)
 
-        new_state = "✅ Enabled" if not current_state else "❌ Disabled"
-        await _send_response(
-            update,
-            f"⚖️ Punishment system is now: {new_state}",
-            create_back_to_main_keyboard()
-        )
+        # Return to punishment menu with updated status
+        await punishment_status(update, _context)
 
     except Exception as e:
         await _send_response(update, f"❌ Error: {str(e)}")
@@ -128,116 +188,199 @@ async def punishment_toggle(update: Update, _context: ContextTypes.DEFAULT_TYPE)
 
 
 async def punishment_set_window(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Set the punishment time window."""
+    """Show window selection menu."""
     check = await check_admin_privilege(update)
     if check:
         return check
 
-    # Check if hours provided as argument
-    if context.args:
-        try:
-            hours = int(context.args[0])
-            if hours < 1 or hours > 720:  # Max 30 days
-                await _send_response(
-                    update,
-                    "❌ Invalid value. Hours must be between 1 and 720."
-                )
-                return ConversationHandler.END
+    try:
+        config_data = await read_config()
+        current_hours = config_data.get("punishment", {}).get("window_hours", 72)
+        
+        message = (
+            "⏰ <b>Set Punishment Time Window</b>\n\n"
+            f"Current: <code>{current_hours} hours</code>\n\n"
+            "Select how long violations should be remembered.\n"
+            "Older violations won't count toward punishment steps."
+        )
+        
+        await _send_response(update, message, create_window_selection_keyboard(current_hours))
 
-            config_data = await read_config()
-            if "punishment" not in config_data:
-                config_data["punishment"] = {"enabled": True, "window_hours": hours, "steps": []}
-            else:
-                config_data["punishment"]["window_hours"] = hours
+    except Exception as e:
+        await _send_response(update, f"❌ Error: {str(e)}")
 
-            await write_json_file(config_data)
-            await _send_response(
-                update,
-                f"✅ Punishment time window set to <code>{hours} hours</code>\n"
-                f"Violations older than this will be forgotten.",
-                create_back_to_main_keyboard()
-            )
-            return ConversationHandler.END
-        except ValueError:
-            pass
+    return ConversationHandler.END
 
-    await _send_response(
-        update,
-        "⚖️ <b>Set Punishment Time Window</b>\n\n"
-        "Enter the number of hours for the violation window.\n"
-        "Violations older than this will not count.\n\n"
-        "Example: <code>/punishment_set_window 72</code> (3 days)"
-    )
+
+async def punishment_set_window_hours(update: Update, context: ContextTypes.DEFAULT_TYPE, hours: int):
+    """Set the punishment window to specific hours."""
+    check = await check_admin_privilege(update)
+    if check:
+        return check
+
+    try:
+        config_data = await read_config()
+        
+        if "punishment" not in config_data:
+            config_data["punishment"] = {"enabled": True, "window_hours": hours, "steps": []}
+        else:
+            config_data["punishment"]["window_hours"] = hours
+
+        await write_json_file(config_data)
+        
+        # Return to punishment menu
+        await punishment_status(update, context)
+
+    except Exception as e:
+        await _send_response(update, f"❌ Error: {str(e)}")
+
     return ConversationHandler.END
 
 
 async def punishment_set_steps(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Configure punishment steps."""
+    """Show steps configuration menu."""
     check = await check_admin_privilege(update)
     if check:
         return check
 
-    # Check if JSON provided as argument
-    if context.args:
-        try:
-            steps_json = " ".join(context.args)
-            steps_data = json.loads(steps_json)
+    try:
+        config_data = await read_config()
+        steps = config_data.get("punishment", {}).get("steps", [])
+        
+        if not steps:
+            # Use default steps for display
+            steps = [
+                {"type": "warning", "duration": 0},
+                {"type": "disable", "duration": 10},
+                {"type": "disable", "duration": 30},
+                {"type": "disable", "duration": 60},
+                {"type": "disable", "duration": 0}
+            ]
+        
+        message = (
+            "📋 <b>Configure Punishment Steps</b>\n\n"
+            "Steps are applied in order for each violation.\n"
+            "Click ➕ to add a step, or 🗑️ to remove one.\n\n"
+            "<b>Current Steps:</b>"
+        )
+        
+        await _send_response(update, message, create_steps_menu_keyboard(steps))
 
-            if not isinstance(steps_data, list) or len(steps_data) == 0:
-                raise ValueError("Steps must be a non-empty array")
+    except Exception as e:
+        await _send_response(update, f"❌ Error: {str(e)}")
 
-            # Validate each step
-            validated_steps = []
-            for step in steps_data:
-                step_type = step.get("type", "disable")
-                duration = step.get("duration", 0)
-                if step_type not in ["warning", "disable"]:
-                    raise ValueError(f"Invalid step type: {step_type}")
-                if not isinstance(duration, int) or duration < 0:
-                    raise ValueError(f"Invalid duration: {duration}")
-                validated_steps.append({"type": step_type, "duration": duration})
+    return ConversationHandler.END
 
-            config_data = await read_config()
-            if "punishment" not in config_data:
-                config_data["punishment"] = {"enabled": True, "window_hours": 72, "steps": validated_steps}
-            else:
-                config_data["punishment"]["steps"] = validated_steps
 
-            await write_json_file(config_data)
+async def punishment_add_step_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Show menu to add a new step."""
+    check = await check_admin_privilege(update)
+    if check:
+        return check
 
-            steps_display = []
-            for i, s in enumerate(validated_steps, 1):
-                if s["type"] == "warning":
-                    steps_display.append(f"  {i}. ⚠️ Warning")
-                elif s["duration"] == 0:
-                    steps_display.append(f"  {i}. 🚫 Unlimited disable")
-                else:
-                    steps_display.append(f"  {i}. 🔒 {s['duration']} min disable")
-
-            await _send_response(
-                update,
-                f"✅ Punishment steps updated:\n\n{chr(10).join(steps_display)}",
-                create_back_to_main_keyboard()
-            )
-            return ConversationHandler.END
-        except (json.JSONDecodeError, ValueError) as e:
-            await _send_response(update, f"❌ Invalid format: {str(e)}")
-            return ConversationHandler.END
-
-    await _send_response(
-        update,
-        "⚖️ <b>Configure Punishment Steps</b>\n\n"
-        "Send steps as JSON array:\n"
-        '<code>/punishment_set_steps [{"type":"warning","duration":0},{"type":"disable","duration":15},{"type":"disable","duration":60},{"type":"disable","duration":0}]</code>\n\n'
-        "<b>Step types:</b>\n"
-        "• <code>warning</code> - Just warn, don't disable\n"
-        "• <code>disable</code> - Disable user\n\n"
-        "<b>Duration (minutes):</b>\n"
-        "• <code>0</code> = Unlimited (for warning: ignored, for disable: permanent)\n"
-        "• <code>15</code> = 15 minutes\n"
-        "• <code>60</code> = 1 hour\n"
-        "• <code>240</code> = 4 hours"
+    message = (
+        "➕ <b>Add Punishment Step</b>\n\n"
+        "Select the type of punishment to add:\n\n"
+        "• <b>Warning</b> - Just send warning, no disable\n"
+        "• <b>Timed disable</b> - Disable for set duration\n"
+        "• <b>Unlimited</b> - Disable until manual enable"
     )
+    
+    await _send_response(update, message, create_add_step_keyboard())
+    return ConversationHandler.END
+
+
+async def punishment_add_step(update: Update, context: ContextTypes.DEFAULT_TYPE, step_type: str, duration: int):
+    """Add a new punishment step."""
+    check = await check_admin_privilege(update)
+    if check:
+        return check
+
+    try:
+        config_data = await read_config()
+        
+        if "punishment" not in config_data:
+            config_data["punishment"] = {"enabled": True, "window_hours": 72, "steps": []}
+        
+        steps = config_data["punishment"].get("steps", [])
+        if not steps:
+            # Initialize with empty list
+            steps = []
+        
+        # Add new step
+        steps.append({"type": step_type, "duration": duration})
+        config_data["punishment"]["steps"] = steps
+        
+        await write_json_file(config_data)
+        
+        # Return to steps menu
+        await punishment_set_steps(update, context)
+
+    except Exception as e:
+        await _send_response(update, f"❌ Error: {str(e)}")
+
+    return ConversationHandler.END
+
+
+async def punishment_remove_step(update: Update, context: ContextTypes.DEFAULT_TYPE, step_index: int):
+    """Remove a punishment step by index."""
+    check = await check_admin_privilege(update)
+    if check:
+        return check
+
+    try:
+        config_data = await read_config()
+        steps = config_data.get("punishment", {}).get("steps", [])
+        
+        if 0 <= step_index < len(steps):
+            steps.pop(step_index)
+            
+            if "punishment" not in config_data:
+                config_data["punishment"] = {"enabled": True, "window_hours": 72, "steps": steps}
+            else:
+                config_data["punishment"]["steps"] = steps
+            
+            await write_json_file(config_data)
+        
+        # Return to steps menu
+        await punishment_set_steps(update, context)
+
+    except Exception as e:
+        await _send_response(update, f"❌ Error: {str(e)}")
+
+    return ConversationHandler.END
+
+
+async def punishment_reset_steps(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Reset steps to defaults."""
+    check = await check_admin_privilege(update)
+    if check:
+        return check
+
+    try:
+        config_data = await read_config()
+        
+        default_steps = [
+            {"type": "warning", "duration": 0},
+            {"type": "disable", "duration": 10},
+            {"type": "disable", "duration": 30},
+            {"type": "disable", "duration": 60},
+            {"type": "disable", "duration": 0}
+        ]
+        
+        if "punishment" not in config_data:
+            config_data["punishment"] = {"enabled": True, "window_hours": 72, "steps": default_steps}
+        else:
+            config_data["punishment"]["steps"] = default_steps
+        
+        await write_json_file(config_data)
+        
+        # Return to steps menu
+        await punishment_set_steps(update, context)
+
+    except Exception as e:
+        await _send_response(update, f"❌ Error: {str(e)}")
+
     return ConversationHandler.END
 
 
