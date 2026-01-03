@@ -89,6 +89,8 @@ from telegram_bot.handlers.limits import (
     handle_edit_special_limit_callback,
     handle_special_limit_info_callback,
     handle_remove_special_limit_callback,
+    handle_special_limit_1_callback,
+    handle_special_limit_2_callback,
 )
 from telegram_bot.handlers.users import (
     set_except_users,
@@ -925,6 +927,31 @@ async def callback_query_handler(update: Update, context: ContextTypes.DEFAULT_T
     
     if data == CallbackData.GENERAL_LIMIT_CUSTOM:
         await handle_general_limit_custom_callback(query, context)
+        return
+    
+    # Special limit preset callbacks (when setting limit for selected user)
+    if data == CallbackData.SPECIAL_LIMIT_1:
+        await handle_special_limit_1_callback(query, context)
+        return
+    
+    if data == CallbackData.SPECIAL_LIMIT_2:
+        await handle_special_limit_2_callback(query, context)
+        return
+    
+    if data == CallbackData.SPECIAL_LIMIT_CUSTOM:
+        from telegram_bot.handlers.limits import handle_special_limit_custom_callback
+        await handle_special_limit_custom_callback(query, context)
+        return
+    
+    # Handle user_info: callback (informational only, from disabled users list)
+    if data.startswith("user_info:"):
+        username = data.split(":", 1)[1]
+        await query.answer(f"User: {username}", show_alert=False)
+        return
+    
+    # Handle noop callback (page indicator buttons that should do nothing)
+    if data == "noop":
+        await query.answer()
         return
     
     # Fallback for unhandled callbacks
