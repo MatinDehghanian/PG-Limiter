@@ -187,12 +187,23 @@ async def restore_config_handler(update: Update, context: ContextTypes.DEFAULT_T
             
             # Restore .env file if present
             env_restored = False
+            env_restore_note = ""
             for env_name in ["config/.env", ".env"]:
                 src_path = os.path.join(temp_dir, env_name)
                 if os.path.exists(src_path):
-                    env_dst = "/etc/opt/pg-limiter/.env" if os.path.exists("/etc/opt/pg-limiter") else ".env"
+                    # Determine destination - check if config dir exists AND is writable
+                    config_dir = "/etc/opt/pg-limiter"
+                    if os.path.exists(config_dir) and os.access(config_dir, os.W_OK):
+                        env_dst = os.path.join(config_dir, ".env")
+                    else:
+                        env_dst = ".env"
+                        if os.path.exists(config_dir):
+                            # Config dir exists but is read-only (Docker mount)
+                            env_restore_note = " (saved locally - config dir is read-only)"
+                    
                     shutil.copy(src_path, env_dst)
                     env_restored = True
+                    backup_logger.info(f"Restored .env to: {env_dst}")
                     break
             
             # Restore data files
@@ -219,9 +230,10 @@ async def restore_config_handler(update: Update, context: ContextTypes.DEFAULT_T
             # Cleanup
             shutil.rmtree(temp_dir)
             
+            env_status = '✓' + env_restore_note if env_restored else '✗'
             await update.message.reply_html(
                 "✅ <b>Backup restored successfully!</b>\n\n"
-                f"• Environment file: {'✓' if env_restored else '✗'}\n"
+                f"• Environment file: {env_status}\n"
                 "• Database: ✓\n\n"
                 "⚠️ Please restart the service for changes to take effect."
             )
