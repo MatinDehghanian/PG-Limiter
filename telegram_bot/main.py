@@ -782,6 +782,36 @@ async def callback_query_handler(update: Update, context: ContextTypes.DEFAULT_T
         await handle_admin_filter_toggle_admin_callback(query, context, username)
         return
     
+    # CDN mode callbacks
+    if data == CallbackData.CDN_MODE_MENU:
+        from telegram_bot.handlers.settings import cdn_mode_menu_callback
+        await cdn_mode_menu_callback(query, context)
+        return
+    
+    if data == CallbackData.CDN_MODE_ADD:
+        from telegram_bot.handlers.settings import cdn_mode_add_callback
+        result = await cdn_mode_add_callback(query, context)
+        # If it returns a state, we're waiting for text input
+        if result is not None:
+            context.user_data["waiting_for"] = "cdn_inbound"
+        return
+    
+    if data == CallbackData.CDN_MODE_REMOVE:
+        from telegram_bot.handlers.settings import cdn_mode_remove_callback
+        await cdn_mode_remove_callback(query, context)
+        return
+    
+    if data == CallbackData.CDN_MODE_CLEAR:
+        from telegram_bot.handlers.settings import cdn_mode_clear_callback
+        await cdn_mode_clear_callback(query, context)
+        return
+    
+    # Handle CDN remove inbound callbacks
+    if data.startswith("cdn_remove_"):
+        from telegram_bot.handlers.settings import cdn_mode_remove_inbound_callback
+        await cdn_mode_remove_inbound_callback(query, context)
+        return
+    
     # Handle dynamic callbacks
     if data.startswith("enable_user:"):
         username = data.split(":", 1)[1]
@@ -1023,6 +1053,13 @@ async def text_message_handler(update: Update, context: ContextTypes.DEFAULT_TYP
                     reply_markup=create_back_to_main_keyboard()
                 )
             context.user_data.pop("selected_user", None)
+        context.user_data["waiting_for"] = None
+        return
+    
+    # Handle CDN inbound input
+    if waiting_for == "cdn_inbound":
+        from telegram_bot.handlers.settings import cdn_mode_add_handler
+        await cdn_mode_add_handler(update, context)
         context.user_data["waiting_for"] = None
         return
     

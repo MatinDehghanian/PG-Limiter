@@ -259,6 +259,15 @@ async def read_config(check_required_elements: bool = False) -> Dict[str, Any]:
             x.strip() for x in admin_usernames_str.split(",") if x.strip()
         ]
     
+    # CDN mode settings - list of inbound protocols that should be treated as CDN
+    # When an inbound is in CDN mode, all IPs from that inbound count as 1 device
+    config["cdn_inbounds"] = []
+    cdn_inbounds_str = db_config.get("cdn_inbounds", "")
+    if cdn_inbounds_str:
+        config["cdn_inbounds"] = [
+            x.strip() for x in cdn_inbounds_str.split(",") if x.strip()
+        ]
+    
     # User sync interval (in minutes)
     if "user_sync_interval" in db_config:
         try:

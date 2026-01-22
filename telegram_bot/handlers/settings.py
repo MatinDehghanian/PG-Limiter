@@ -978,3 +978,178 @@ async def handle_force_delete_callback(query, context: ContextTypes.DEFAULT_TYPE
             ]),
             parse_mode="HTML"
         )
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# CDN MODE SETTINGS
+# ═══════════════════════════════════════════════════════════════════════════════
+
+
+def create_cdn_mode_keyboard():
+    """Create CDN mode settings keyboard."""
+    keyboard = [
+        [InlineKeyboardButton("➕ Add Inbound", callback_data=CallbackData.CDN_MODE_ADD)],
+        [InlineKeyboardButton("➖ Remove Inbound", callback_data=CallbackData.CDN_MODE_REMOVE)],
+        [InlineKeyboardButton("🗑️ Clear All", callback_data=CallbackData.CDN_MODE_CLEAR)],
+        [InlineKeyboardButton("« Back to Settings", callback_data=CallbackData.SETTINGS_MENU)],
+    ]
+    return InlineKeyboardMarkup(keyboard)
+
+
+async def cdn_mode_menu_callback(query, context: ContextTypes.DEFAULT_TYPE):
+    """Handle CDN mode menu callback."""
+    config_data = await read_config()
+    cdn_inbounds = config_data.get("cdn_inbounds", [])
+    
+    if cdn_inbounds:
+        inbounds_list = "\n".join(f"  • <code>{inbound}</code>" for inbound in cdn_inbounds)
+        status_text = f"<b>CDN Inbounds ({len(cdn_inbounds)}):</b>\n{inbounds_list}"
+    else:
+        status_text = "<i>No inbounds in CDN mode</i>"
+    
+    await query.edit_message_text(
+        text=(
+            "☁️ <b>CDN Mode Settings</b>\n\n"
+            f"{status_text}\n\n"
+            "<b>How it works:</b>\n"
+            "When an inbound is in CDN mode, all IPs from that inbound "
+            "count as <b>1 device</b>, regardless of how many unique IPs are seen.\n\n"
+            "This is useful for inbounds behind CDN (like Cloudflare) where "
+            "each request may come from a different CDN edge IP."
+        ),
+        reply_markup=create_cdn_mode_keyboard(),
+        parse_mode="HTML"
+    )
+
+
+async def cdn_mode_add_callback(query, context: ContextTypes.DEFAULT_TYPE):
+    """Handle adding an inbound to CDN mode."""
+    from telegram_bot.constants import SET_CDN_INBOUND
+    
+    await query.edit_message_text(
+        text=(
+            "➕ <b>Add Inbound to CDN Mode</b>\n\n"
+            "Send the <b>exact</b> inbound protocol name to add.\n\n"
+            "Examples:\n"
+            "• <code>VLESS XHTTP TLS</code>\n"
+            "• <code>Vmess CDN</code>\n"
+            "• <code>Trojan WS TLS</code>\n\n"
+            "💡 <i>You can find inbound names in the connection report or user logs.</i>\n\n"
+            "Send /cancel to cancel."
+        ),
+        reply_markup=InlineKeyboardMarkup([
+            [InlineKeyboardButton("« Cancel", callback_data=CallbackData.CDN_MODE_MENU)]
+        ]),
+        parse_mode="HTML"
+    )
+    
+    context.user_data["cdn_mode_action"] = "add"
+    return SET_CDN_INBOUND
+
+
+async def cdn_mode_remove_callback(query, context: ContextTypes.DEFAULT_TYPE):
+    """Handle removing an inbound from CDN mode."""
+    config_data = await read_config()
+    cdn_inbounds = config_data.get("cdn_inbounds", [])
+    
+    if not cdn_inbounds:
+        await query.edit_message_text(
+            text="❌ No inbounds are currently in CDN mode.",
+            reply_markup=create_cdn_mode_keyboard(),
+            parse_mode="HTML"
+        )
+        return
+    
+    # Create buttons for each inbound
+    keyboard = []
+    for inbound in cdn_inbounds:
+        callback_data = f"cdn_remove_{inbound[:50]}"  # Limit length
+        keyboard.append([InlineKeyboardButton(f"❌ {inbound}", callback_data=callback_data)])
+    
+    keyboard.append([InlineKeyboardButton("« Back", callback_data=CallbackData.CDN_MODE_MENU)])
+    
+    await query.edit_message_text(
+        text="➖ <b>Remove Inbound from CDN Mode</b>\n\nSelect an inbound to remove:",
+        reply_markup=InlineKeyboardMarkup(keyboard),
+        parse_mode="HTML"
+    )
+
+
+async def cdn_mode_remove_inbound_callback(query, context: ContextTypes.DEFAULT_TYPE):
+    """Handle removing a specific inbound from CDN mode."""
+    callback_data = query.data
+    inbound_name = callback_data.replace("cdn_remove_", "")
+    
+    config_data = await read_config()
+    cdn_inbounds = config_data.get("cdn_inbounds", [])
+    
+    # Find and remove the inbound (handle truncated names)
+    removed = None
+    for inbound in cdn_inbounds:
+        if inbound.startswith(inbound_name) or inbound == inbound_name:
+            removed = inbound
+            cdn_inbounds.remove(inbound)
+            break
+    
+    if removed:
+        # Save updated list
+        await save_config_value("cdn_inbounds", ",".join(cdn_inbounds))
+        
+        await query.answer(f"✅ Removed: {removed}")
+    else:
+        await query.answer("❌ Inbound not found", show_alert=True)
+    
+    # Return to CDN mode menu
+    await cdn_mode_menu_callback(query, context)
+
+
+async def cdn_mode_clear_callback(query, context: ContextTypes.DEFAULT_TYPE):
+    """Handle clearing all CDN inbounds."""
+    await save_config_value("cdn_inbounds", "")
+    await query.answer("✅ All CDN inbounds cleared")
+    await cdn_mode_menu_callback(query, context)
+
+
+async def cdn_mode_add_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handle text input for adding CDN inbound."""
+    from telegram.ext import ConversationHandler
+    from telegram_bot.constants import SET_CDN_INBOUND
+    
+    text = update.message.text.strip()
+    
+    if text.lower() == "/cancel":
+        await update.message.reply_html(
+            "❌ Cancelled.",
+            reply_markup=create_cdn_mode_keyboard()
+        )
+        return ConversationHandler.END
+    
+    if not text:
+        await update.message.reply_html(
+            "❌ Please send a valid inbound name.\n\nSend /cancel to cancel."
+        )
+        return SET_CDN_INBOUND
+    
+    # Load current CDN inbounds
+    config_data = await read_config()
+    cdn_inbounds = config_data.get("cdn_inbounds", [])
+    
+    # Check if already exists
+    if text in cdn_inbounds:
+        await update.message.reply_html(
+            f"⚠️ <code>{text}</code> is already in CDN mode.",
+            reply_markup=create_cdn_mode_keyboard()
+        )
+        return ConversationHandler.END
+    
+    # Add new inbound
+    cdn_inbounds.append(text)
+    await save_config_value("cdn_inbounds", ",".join(cdn_inbounds))
+    
+    await update.message.reply_html(
+        f"✅ Added <code>{text}</code> to CDN mode.\n\n"
+        "All IPs from this inbound will now count as <b>1 device</b>.",
+        reply_markup=create_cdn_mode_keyboard()
+    )
+    
+    return ConversationHandler.END

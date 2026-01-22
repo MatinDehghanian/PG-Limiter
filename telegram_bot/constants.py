@@ -24,7 +24,8 @@ Contains callback data constants and conversation states.
     SET_ENHANCED_DETAILS,
     RESTORE_CONFIG,
     WAITING_USERNAME_FOR_LIMIT,
-) = range(19)
+    SET_CDN_INBOUND,
+) = range(20)
 
 
 class CallbackData:
@@ -155,6 +156,13 @@ class CallbackData:
     ADMIN_FILTER_TOGGLE = "admin_filter_toggle"
     ADMIN_FILTER_MODE_INCLUDE = "admin_filter_mode_include"
     ADMIN_FILTER_MODE_EXCLUDE = "admin_filter_mode_exclude"
+    
+    # CDN mode settings
+    CDN_MODE_MENU = "cdn_mode_menu"
+    CDN_MODE_ADD = "cdn_mode_add"
+    CDN_MODE_REMOVE = "cdn_mode_remove"
+    CDN_MODE_LIST = "cdn_mode_list"
+    CDN_MODE_CLEAR = "cdn_mode_clear"
     
     # User sync settings
     USER_SYNC_MENU = "user_sync_menu"

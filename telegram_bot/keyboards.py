@@ -49,6 +49,9 @@ def create_settings_menu_keyboard():
             InlineKeyboardButton("📌 Topics", callback_data=CallbackData.TOPICS_MENU),
         ],
         [
+            InlineKeyboardButton("☁️ CDN Mode", callback_data=CallbackData.CDN_MODE_MENU),
+        ],
+        [
             InlineKeyboardButton("🔙 Back", callback_data=CallbackData.BACK_MAIN),
         ],
     ]

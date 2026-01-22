@@ -86,7 +86,7 @@ def group_ips_by_subnet(ip_list: list[str]) -> tuple[list[str], dict[str, list[s
     return formatted_results, ip_mapping
 
 
-def _build_ip_details(user_info: EnhancedUserInfo, original_user: UserType, show_enhanced_details: bool) -> tuple[list[str], int]:
+def _build_ip_details(user_info: EnhancedUserInfo, original_user: UserType, show_enhanced_details: bool, cdn_inbounds: list[str] = None) -> tuple[list[str], int]:
     """
     Build IP details with connection info for a user.
     
@@ -94,21 +94,35 @@ def _build_ip_details(user_info: EnhancedUserInfo, original_user: UserType, show
         user_info: Enhanced user information
         original_user: Original user data with device info
         show_enhanced_details: Whether to show detailed connection info
+        cdn_inbounds: List of inbound protocols that should be treated as CDN.
+                     In CDN mode, all IPs from the same inbound count as 1 device.
         
     Returns:
         Tuple of (list of formatted IP detail strings, device count)
-        Device count = unique (IP, inbound) combinations
+        Device count = unique (IP, inbound) combinations, with CDN inbounds counting as 1
     """
+    if cdn_inbounds is None:
+        cdn_inbounds = []
+    
     device_count = 0
     unique_devices = set()  # Track unique (IP, inbound) combinations
+    cdn_inbound_seen = set()  # Track CDN inbounds we've already counted
     
     if not original_user or not original_user.device_info or not original_user.device_info.connections:
         # Fallback: count IPs as devices if no connection info
         return [], len(user_info.formatted_ips)
     
     # Count unique devices (IP + inbound combinations)
+    # For CDN inbounds, all IPs count as 1 device per inbound
     for conn in original_user.device_info.connections:
-        unique_devices.add((conn.ip, conn.inbound_protocol))
+        if conn.inbound_protocol in cdn_inbounds:
+            # CDN mode: count this inbound as 1 device regardless of IP count
+            if conn.inbound_protocol not in cdn_inbound_seen:
+                cdn_inbound_seen.add(conn.inbound_protocol)
+                unique_devices.add(("CDN", conn.inbound_protocol))
+        else:
+            # Normal mode: each unique (IP, inbound) is a device
+            unique_devices.add((conn.ip, conn.inbound_protocol))
     device_count = len(unique_devices)
     
     if not show_enhanced_details:
@@ -165,6 +179,7 @@ async def check_ip_used() -> dict:
     general_limit = config_data.get("limits", {}).get("general", 2)
     except_users = config_data.get("except_users", [])  # except_users is at root level
     show_enhanced_details = config_data.get("display", {}).get("show_enhanced_details", True)
+    cdn_inbounds = config_data.get("cdn_inbounds", [])  # List of inbounds in CDN mode
     
     # Read special limits from database instead of config
     from db.database import get_db
@@ -306,7 +321,7 @@ async def check_ip_used() -> dict:
             continue
         
         original_user = ACTIVE_USERS.get(email)
-        _, device_count = _build_ip_details(user_info, original_user, show_enhanced_details)
+        _, device_count = _build_ip_details(user_info, original_user, show_enhanced_details, cdn_inbounds)
         all_user_device_counts[email] = device_count
         total_devices += device_count
     
@@ -345,7 +360,7 @@ async def check_ip_used() -> dict:
         users_shown += 1
         
         # Build IP details
-        ip_details, _ = _build_ip_details(user_info, original_user, show_enhanced_details)
+        ip_details, _ = _build_ip_details(user_info, original_user, show_enhanced_details, cdn_inbounds)
         
         # Build status indicators
         status_text = ""
