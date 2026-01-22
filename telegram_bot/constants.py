@@ -25,7 +25,8 @@ Contains callback data constants and conversation states.
     RESTORE_CONFIG,
     WAITING_USERNAME_FOR_LIMIT,
     SET_CDN_INBOUND,
-) = range(20)
+    SET_NODE_SETTINGS,
+) = range(21)
 
 
 class CallbackData:
@@ -163,6 +164,14 @@ class CallbackData:
     CDN_MODE_REMOVE = "cdn_mode_remove"
     CDN_MODE_LIST = "cdn_mode_list"
     CDN_MODE_CLEAR = "cdn_mode_clear"
+    
+    # Node settings
+    NODE_SETTINGS_MENU = "node_settings_menu"
+    NODE_SETTINGS_REFRESH = "node_settings_refresh"
+    NODE_CDN_MENU = "node_cdn_menu"
+    NODE_DISABLED_MENU = "node_disabled_menu"
+    NODE_CDN_CLEAR = "node_cdn_clear"
+    NODE_DISABLED_CLEAR = "node_disabled_clear"
     
     # User sync settings
     USER_SYNC_MENU = "user_sync_menu"

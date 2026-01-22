@@ -50,6 +50,7 @@ def create_settings_menu_keyboard():
         ],
         [
             InlineKeyboardButton("☁️ CDN Mode", callback_data=CallbackData.CDN_MODE_MENU),
+            InlineKeyboardButton("🖥️ Node Settings", callback_data=CallbackData.NODE_SETTINGS_MENU),
         ],
         [
             InlineKeyboardButton("🔙 Back", callback_data=CallbackData.BACK_MAIN),

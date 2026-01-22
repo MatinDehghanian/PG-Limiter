@@ -268,6 +268,30 @@ async def read_config(check_required_elements: bool = False) -> Dict[str, Any]:
             x.strip() for x in cdn_inbounds_str.split(",") if x.strip()
         ]
     
+    # CDN nodes - list of node IDs that are behind CDN
+    # All IPs from CDN nodes count as 1 device (similar to cdn_inbounds but per-node)
+    config["cdn_nodes"] = []
+    cdn_nodes_str = db_config.get("cdn_nodes", "")
+    if cdn_nodes_str:
+        try:
+            config["cdn_nodes"] = [
+                int(x.strip()) for x in cdn_nodes_str.split(",") if x.strip()
+            ]
+        except ValueError:
+            pass
+    
+    # Disabled nodes - list of node IDs to exclude from monitoring
+    # Connections from these nodes are completely ignored
+    config["disabled_nodes"] = []
+    disabled_nodes_str = db_config.get("disabled_nodes", "")
+    if disabled_nodes_str:
+        try:
+            config["disabled_nodes"] = [
+                int(x.strip()) for x in disabled_nodes_str.split(",") if x.strip()
+            ]
+        except ValueError:
+            pass
+    
     # User sync interval (in minutes)
     if "user_sync_interval" in db_config:
         try:

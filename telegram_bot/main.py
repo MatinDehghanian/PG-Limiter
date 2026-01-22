@@ -812,6 +812,50 @@ async def callback_query_handler(update: Update, context: ContextTypes.DEFAULT_T
         await cdn_mode_remove_inbound_callback(query, context)
         return
     
+    # Node settings callbacks
+    if data == CallbackData.NODE_SETTINGS_MENU:
+        from telegram_bot.handlers.settings import node_settings_menu_callback
+        await node_settings_menu_callback(query, context)
+        return
+    
+    if data == CallbackData.NODE_SETTINGS_REFRESH:
+        from telegram_bot.handlers.settings import node_settings_refresh_callback
+        await node_settings_refresh_callback(query, context)
+        return
+    
+    if data == CallbackData.NODE_CDN_MENU:
+        from telegram_bot.handlers.settings import node_cdn_menu_callback
+        await node_cdn_menu_callback(query, context)
+        return
+    
+    if data == CallbackData.NODE_DISABLED_MENU:
+        from telegram_bot.handlers.settings import node_disabled_menu_callback
+        await node_disabled_menu_callback(query, context)
+        return
+    
+    if data == CallbackData.NODE_CDN_CLEAR:
+        from telegram_bot.handlers.settings import node_cdn_clear_callback
+        await node_cdn_clear_callback(query, context)
+        return
+    
+    if data == CallbackData.NODE_DISABLED_CLEAR:
+        from telegram_bot.handlers.settings import node_disabled_clear_callback
+        await node_disabled_clear_callback(query, context)
+        return
+    
+    # Handle node toggle callbacks
+    if data.startswith("node_cdn_toggle:"):
+        node_id = int(data.split(":")[1])
+        from telegram_bot.handlers.settings import node_cdn_toggle_callback
+        await node_cdn_toggle_callback(query, context, node_id)
+        return
+    
+    if data.startswith("node_disabled_toggle:"):
+        node_id = int(data.split(":")[1])
+        from telegram_bot.handlers.settings import node_disabled_toggle_callback
+        await node_disabled_toggle_callback(query, context, node_id)
+        return
+    
     # Handle dynamic callbacks
     if data.startswith("enable_user:"):
         username = data.split(":", 1)[1]
