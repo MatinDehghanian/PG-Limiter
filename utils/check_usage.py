@@ -6,6 +6,7 @@ Enhanced with warning system and ISP detection.
 
 import asyncio
 import ipaddress
+import re
 from collections import Counter
 
 from telegram_bot.send_message import send_logs, send_user_message, send_active_users_log
@@ -24,6 +25,30 @@ ACTIVE_USERS: dict[str, UserType] | dict = {}
 # Initialize warning system and ISP detector
 warning_system = EnhancedWarningSystem()
 isp_detector = None  # Will be initialized when needed
+
+# Pattern to match usernames ending with .X.User where X is a number
+USERNAME_LIMIT_PATTERN = re.compile(r'\.(\d+)\.User$')
+
+
+def extract_limit_from_username(username: str) -> int | None:
+    """
+    Extract limit number from username if it ends with pattern like .2.User.
+    
+    Args:
+        username: The username to check
+        
+    Returns:
+        The limit number if pattern matches, None otherwise
+        
+    Examples:
+        "amir.1.User" -> 1
+        "mjd.2.User" -> 2
+        "normal_user" -> None
+    """
+    match = USERNAME_LIMIT_PATTERN.search(username)
+    if match:
+        return int(match.group(1))
+    return None
 
 
 def group_ips_by_subnet(ip_list: list[str]) -> tuple[list[str], dict[str, list[str]]]:
@@ -372,6 +397,25 @@ async def check_ip_used() -> dict:
         user_limit = special_limit.get(email, general_limit)
         has_special_limit = email in special_limit
         is_except = email in except_users
+        
+        # Auto-set limit from username pattern if user doesn't have a special limit
+        # Example: "test_user(2User)" -> automatically set limit to 2
+        if not has_special_limit and not is_except:
+            username_limit = extract_limit_from_username(email)
+            if username_limit is not None:
+                # Auto-set the limit from username pattern
+                from db.database import get_db
+                from db.crud import UserCRUD
+                try:
+                    async with get_db() as db:
+                        await UserCRUD.set_special_limit(db, email, username_limit)
+                        await db.commit()
+                    special_limit[email] = username_limit
+                    user_limit = username_limit
+                    has_special_limit = True
+                    logger.info(f"✅ Auto-set limit for {email} to {username_limit} based on username pattern")
+                except Exception as e:
+                    logger.error(f"Failed to auto-set limit for {email}: {e}")
         
         # Skip users who are not exceeding their limit
         # A user violates when device_count > user_limit
