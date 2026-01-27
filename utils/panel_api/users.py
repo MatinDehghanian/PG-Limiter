@@ -760,29 +760,54 @@ async def enable_user_by_group(panel_data: PanelType, username: str) -> bool:
                 users_logger.debug(f"Could not check database for groups: {db_error}")
         
         if original_groups is None:
-            users_logger.warning(f"No saved groups found for user {username} in JSON or database, will clear disabled group")
+            users_logger.warning(f"No saved groups found for user {username} in JSON or database, will try to remove from disabled group")
             # Get config to check if user is in disabled group
             data = await read_config()
             disabled_group_id = data.get("disabled_group_id", None)
             
-            if disabled_group_id is not None:
-                # Get current user details
-                user_data = await get_user_details(panel_data, username)
-                if user_data:
-                    current_groups = user_data.get("group_ids", [])
-                    # If user is in disabled group, remove them from it
-                    if disabled_group_id in current_groups:
-                        users_logger.info(f"👥 User {username} is in disabled group {disabled_group_id}, removing...")
-                        new_groups = [g for g in current_groups if g != disabled_group_id]
-                        # Combined API call: set both group_ids and status in one request
-                        success = await _update_user_groups_and_status(panel_data, username, new_groups, "active")
-                        if success:
-                            log_user_action("ENABLE", username, f"removed from disabled group, status active (no saved groups)", success=True)
-                            users_logger.info(f"✅ Enabled user: {username} (removed from disabled group, status active)")
-                            return True
-            # Fallback to status-only enable
-            users_logger.warning(f"⚠️ Enabling {username} without group restoration (groups not saved)")
-            return await enable_user_by_status(panel_data, username)
+            # Always get current user details to check their group status
+            user_data = await get_user_details(panel_data, username)
+            if user_data:
+                current_groups = user_data.get("group_ids", []) or []
+                
+                if disabled_group_id is not None and disabled_group_id in current_groups:
+                    # User is in disabled group - remove them from it
+                    users_logger.info(f"👥 User {username} is in disabled group {disabled_group_id}, removing...")
+                    new_groups = [g for g in current_groups if g != disabled_group_id]
+                    # Combined API call: set both group_ids and status in one request
+                    success = await _update_user_groups_and_status(panel_data, username, new_groups, "active")
+                    if success:
+                        log_user_action("ENABLE", username, f"removed from disabled group {disabled_group_id}, status active (no saved groups)", success=True)
+                        users_logger.info(f"✅ Enabled user: {username} (removed from disabled group, status active)")
+                        return True
+                    else:
+                        users_logger.error(f"❌ Failed to remove {username} from disabled group")
+                        return False
+                else:
+                    # User is NOT in disabled group - just update status and keep current groups
+                    users_logger.info(f"👥 User {username} not in disabled group (current groups: {current_groups}), updating status only")
+                    success = await _update_user_groups_and_status(panel_data, username, current_groups, "active")
+                    if success:
+                        log_user_action("ENABLE", username, f"status active, kept existing groups {current_groups}", success=True)
+                        users_logger.info(f"✅ Enabled user: {username} (status active, groups unchanged)")
+                        return True
+                    else:
+                        users_logger.error(f"❌ Failed to enable {username}")
+                        return False
+            else:
+                # Could not get user details - try status-only as last resort
+                users_logger.error(f"❌ Could not get user details for {username}, trying status-only enable")
+                return await enable_user_by_status(panel_data, username)
+        
+        # We have original_groups - restore them
+        # But first, ensure we don't accidentally restore the disabled group
+        data = await read_config()
+        disabled_group_id = data.get("disabled_group_id", None)
+        
+        # Filter out the disabled group from original_groups if present
+        if disabled_group_id is not None and disabled_group_id in original_groups:
+            users_logger.warning(f"⚠️ Removing disabled_group_id {disabled_group_id} from original_groups for {username}")
+            original_groups = [g for g in original_groups if g != disabled_group_id]
         
         users_logger.debug(f"👥 Restoring original groups for {username} (from {groups_source}): {original_groups}")
         # Combined API call: set both group_ids and status in one request
@@ -1001,12 +1026,17 @@ async def disable_user_by_group(panel_data: PanelType, username: str, disabled_g
             users_logger.error(f"User {username} not found")
             return False
         
-        current_groups = user_data.get("group_ids", [])
-        users_logger.debug(f"👥 Saving current groups for {username}: {current_groups}")
+        current_groups = user_data.get("group_ids", []) or []
+        
+        # IMPORTANT: Filter out the disabled_group_id from saved groups
+        # This prevents saving the disabled group as an "original" group
+        original_groups_to_save = [g for g in current_groups if g != disabled_group_id]
+        
+        users_logger.debug(f"👥 Saving current groups for {username}: {original_groups_to_save} (filtered from {current_groups})")
         
         # Save to JSON file (primary backup)
         groups_storage = UserGroupsStorage()
-        await groups_storage.save_user_groups(username, current_groups)
+        await groups_storage.save_user_groups(username, original_groups_to_save)
         
         # Also save to database (secondary backup for redundancy)
         try:
@@ -1016,7 +1046,7 @@ async def disable_user_by_group(panel_data: PanelType, username: str, disabled_g
             async with get_db_session() as db:
                 user_record = await UserCRUD.get_by_username(db, username)
                 if user_record:
-                    user_record.original_groups = current_groups
+                    user_record.original_groups = original_groups_to_save
                     await db.commit()
                     users_logger.debug(f"📦 Saved groups to database for {username}: {current_groups}")
         except Exception as db_error:
