@@ -34,6 +34,8 @@ from utils.panel_api.users import (
     disable_user_with_punishment,
     enable_dis_user,
     cleanup_deleted_users,
+    fix_stuck_disabled_users,
+    get_users_in_disabled_group,
 )
 
 # Node operations
@@ -74,6 +76,8 @@ __all__ = [
     "disable_user_with_punishment",
     "enable_dis_user",
     "cleanup_deleted_users",
+    "fix_stuck_disabled_users",
+    "get_users_in_disabled_group",
     # Nodes
     "get_nodes",
     "invalidate_nodes_cache",

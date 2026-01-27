@@ -365,6 +365,11 @@ async def callback_query_handler(update: Update, context: ContextTypes.DEFAULT_T
         await enable_all_disabled_users(query)
         return
     
+    if data == "fix_stuck_users":
+        from telegram_bot.handlers.users import fix_stuck_users_handler
+        await fix_stuck_users_handler(query)
+        return
+    
     if data == CallbackData.CLEANUP_DELETED_USERS:
         await cleanup_deleted_users_handler(query)
         return

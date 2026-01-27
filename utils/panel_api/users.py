@@ -1296,3 +1296,126 @@ async def cleanup_deleted_users(panel_data: PanelType) -> dict:
         "user_groups_backup_removed": [],
         "error": "Function disabled - was removing valid users. Use Telegram bot instead."
     }
+
+
+async def fix_stuck_disabled_users(panel_data: PanelType) -> dict:
+    """
+    Find and fix users who are stuck in the disabled group.
+    
+    This handles cases where users are in the disabled group but:
+    - Have "active" status (should be disabled or restored)
+    - Were not properly tracked in the disabled users list
+    - Have their previous groups saved but not restored
+    
+    Args:
+        panel_data (PanelType): Panel connection data.
+        
+    Returns:
+        dict: Results with 'fixed', 'failed', and 'not_in_disabled_group' lists.
+    """
+    users_logger.info("🔍 Scanning for users stuck in disabled group...")
+    
+    data = await read_config()
+    disabled_group_id = data.get("disabled_group_id", None)
+    
+    if disabled_group_id is None:
+        users_logger.warning("⚠️ No disabled_group_id configured, cannot scan for stuck users")
+        return {
+            "fixed": [],
+            "failed": [],
+            "found_in_disabled_group": [],
+            "error": "disabled_group_id not configured"
+        }
+    
+    # Get all users from panel
+    all_users = await all_user(panel_data)
+    if isinstance(all_users, ValueError):
+        users_logger.error(f"Failed to get users: {all_users}")
+        return {
+            "fixed": [],
+            "failed": [],
+            "found_in_disabled_group": [],
+            "error": str(all_users)
+        }
+    
+    # Find users in the disabled group
+    stuck_users = []
+    for user in all_users:
+        user_groups = getattr(user, 'group_ids', []) or []
+        if disabled_group_id in user_groups:
+            stuck_users.append(user)
+    
+    users_logger.info(f"📋 Found {len(stuck_users)} users in disabled group {disabled_group_id}")
+    
+    if not stuck_users:
+        return {
+            "fixed": [],
+            "failed": [],
+            "found_in_disabled_group": [],
+            "message": "No users found in disabled group"
+        }
+    
+    fixed_users = []
+    failed_users = []
+    
+    for user in stuck_users:
+        username = user.name
+        users_logger.info(f"🔧 Fixing stuck user: {username}")
+        
+        try:
+            # Try to enable the user (this will restore groups if available)
+            success = await enable_user_by_group(panel_data, username)
+            
+            if success:
+                # Also remove from disabled users tracking if present
+                dis_obj = DisabledUsers()
+                await dis_obj.remove_user(username)
+                
+                fixed_users.append(username)
+                users_logger.info(f"✅ Fixed stuck user: {username}")
+            else:
+                failed_users.append(username)
+                users_logger.error(f"❌ Failed to fix stuck user: {username}")
+        except Exception as e:
+            failed_users.append(username)
+            users_logger.error(f"❌ Error fixing stuck user {username}: {e}")
+    
+    users_logger.info(f"✅ Fix complete: {len(fixed_users)} fixed, {len(failed_users)} failed")
+    
+    return {
+        "fixed": fixed_users,
+        "failed": failed_users,
+        "found_in_disabled_group": [u.name for u in stuck_users],
+        "disabled_group_id": disabled_group_id
+    }
+
+
+async def get_users_in_disabled_group(panel_data: PanelType) -> list[str]:
+    """
+    Get list of usernames that are currently in the disabled group.
+    
+    Args:
+        panel_data (PanelType): Panel connection data.
+        
+    Returns:
+        list[str]: List of usernames in disabled group.
+    """
+    data = await read_config()
+    disabled_group_id = data.get("disabled_group_id", None)
+    
+    if disabled_group_id is None:
+        users_logger.warning("⚠️ No disabled_group_id configured")
+        return []
+    
+    all_users = await all_user(panel_data)
+    if isinstance(all_users, ValueError):
+        users_logger.error(f"Failed to get users: {all_users}")
+        return []
+    
+    stuck_users = []
+    for user in all_users:
+        user_groups = getattr(user, 'group_ids', []) or []
+        if disabled_group_id in user_groups:
+            stuck_users.append(user.name)
+    
+    return stuck_users

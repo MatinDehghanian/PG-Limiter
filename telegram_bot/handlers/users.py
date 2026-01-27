@@ -161,6 +161,14 @@ def create_disabled_users_keyboard(disabled_users: dict, page: int = 0, per_page
             )
         ])
     
+    # Fix stuck users button - for users stuck in disabled group
+    keyboard.append([
+        InlineKeyboardButton(
+            "🔧 Fix Stuck Users in Disabled Group",
+            callback_data="fix_stuck_users"
+        )
+    ])
+    
     # Refresh and back buttons
     keyboard.append([
         InlineKeyboardButton("🔄 Refresh", callback_data=CallbackData.SHOW_DISABLED_USERS),
@@ -399,6 +407,85 @@ async def enable_all_disabled_users(query):
     except Exception as e:
         await query.edit_message_text(
             text=f"❌ Error enabling users: {e}",
+            reply_markup=create_back_to_users_keyboard(),
+            parse_mode="HTML"
+        )
+
+
+async def fix_stuck_users_handler(query):
+    """Fix users that are stuck in the disabled group but not properly tracked."""
+    from utils.panel_api import fix_stuck_disabled_users, get_users_in_disabled_group
+    from utils.types import PanelType
+    
+    try:
+        await query.edit_message_text(
+            text="🔍 <b>Scanning for stuck users...</b>\n\n"
+                 "Looking for users in the disabled group that need to be fixed...",
+            parse_mode="HTML"
+        )
+        
+        # Load config for panel data
+        config = await read_config()
+        panel_config = config.get("panel", {})
+        panel_data = PanelType(
+            panel_username=panel_config.get("username", ""),
+            panel_password=panel_config.get("password", ""),
+            panel_domain=panel_config.get("domain", "")
+        )
+        
+        # First, show how many users are in disabled group
+        stuck_usernames = await get_users_in_disabled_group(panel_data)
+        
+        if not stuck_usernames:
+            await query.edit_message_text(
+                text="✅ <b>No Stuck Users Found</b>\n\n"
+                     "No users are currently in the disabled group.\n"
+                     "Everything looks good!",
+                reply_markup=create_back_to_users_keyboard(),
+                parse_mode="HTML"
+            )
+            return
+        
+        await query.edit_message_text(
+            text=f"⏳ <b>Found {len(stuck_usernames)} users in disabled group</b>\n\n"
+                 f"Now attempting to fix and restore their groups...\n\n"
+                 f"Users: {', '.join(stuck_usernames[:10])}{'...' if len(stuck_usernames) > 10 else ''}",
+            parse_mode="HTML"
+        )
+        
+        # Fix all stuck users
+        result = await fix_stuck_disabled_users(panel_data)
+        
+        fixed = result.get("fixed", [])
+        failed = result.get("failed", [])
+        
+        if failed:
+            text = (
+                f"⚠️ <b>Partial Fix Complete</b>\n\n"
+                f"✅ <b>{len(fixed)}</b> users fixed successfully\n"
+                f"❌ <b>{len(failed)}</b> users failed to fix\n\n"
+            )
+            if fixed:
+                text += f"<b>Fixed:</b>\n{', '.join(fixed[:10])}{'...' if len(fixed) > 10 else ''}\n\n"
+            text += f"<b>Failed:</b>\n{', '.join(failed[:10])}{'...' if len(failed) > 10 else ''}"
+        else:
+            text = (
+                f"✅ <b>All Stuck Users Fixed!</b>\n\n"
+                f"Successfully fixed <b>{len(fixed)}</b> users.\n"
+                f"Their previous groups have been restored."
+            )
+            if fixed:
+                text += f"\n\n<b>Fixed users:</b>\n{', '.join(fixed[:15])}{'...' if len(fixed) > 15 else ''}"
+        
+        await query.edit_message_text(
+            text=text,
+            reply_markup=create_back_to_users_keyboard(),
+            parse_mode="HTML"
+        )
+        
+    except Exception as e:
+        await query.edit_message_text(
+            text=f"❌ Error fixing stuck users: {e}",
             reply_markup=create_back_to_users_keyboard(),
             parse_mode="HTML"
         )
