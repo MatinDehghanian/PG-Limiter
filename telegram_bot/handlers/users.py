@@ -277,10 +277,26 @@ async def show_disabled_users_menu(query, page: int = 0):
         if not disabled_dict:
             text = (
                 "🚫 <b>Disabled Users</b>\n\n"
-                "✅ No users are currently disabled by the limiter.\n\n"
-                "Users get disabled when they exceed their IP limit."
+                "✅ No users are currently tracked as disabled by the limiter.\n\n"
+                "Users get disabled when they exceed their IP limit.\n\n"
+                "<i>⚠️ Note: There may still be users stuck in the disabled group "
+                "that are not tracked. Use the buttons below to check and fix them.</i>"
             )
-            keyboard = create_back_to_users_keyboard()
+            # Create keyboard with the important buttons even when no tracked users
+            keyboard = [
+                [InlineKeyboardButton(
+                    "👥 View Users in Disabled Group",
+                    callback_data="view_users_in_disabled_group"
+                )],
+                [InlineKeyboardButton(
+                    "🔧 Fix All Stuck Users",
+                    callback_data="fix_stuck_users"
+                )],
+                [InlineKeyboardButton("🔄 Refresh", callback_data=CallbackData.SHOW_DISABLED_USERS)],
+                [InlineKeyboardButton("« Back to Users", callback_data=CallbackData.BACK_USERS)],
+                [InlineKeyboardButton("« Back to Main Menu", callback_data=CallbackData.MAIN_MENU)],
+            ]
+            keyboard = InlineKeyboardMarkup(keyboard)
         else:
             # Get time to active for info
             try:
