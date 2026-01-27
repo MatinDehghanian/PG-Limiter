@@ -365,6 +365,17 @@ async def callback_query_handler(update: Update, context: ContextTypes.DEFAULT_T
         await enable_all_disabled_users(query)
         return
     
+    if data == "view_users_in_disabled_group":
+        from telegram_bot.handlers.users import show_users_in_disabled_group
+        await show_users_in_disabled_group(query)
+        return
+    
+    if data.startswith("disabled_group_page:"):
+        from telegram_bot.handlers.users import show_users_in_disabled_group
+        page = int(data.split(":")[1])
+        await show_users_in_disabled_group(query, page)
+        return
+    
     if data == "fix_stuck_users":
         from telegram_bot.handlers.users import fix_stuck_users_handler
         await fix_stuck_users_handler(query)

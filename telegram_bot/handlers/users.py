@@ -161,10 +161,18 @@ def create_disabled_users_keyboard(disabled_users: dict, page: int = 0, per_page
             )
         ])
     
+    # View users in disabled group button
+    keyboard.append([
+        InlineKeyboardButton(
+            "👥 View Users in Disabled Group",
+            callback_data="view_users_in_disabled_group"
+        )
+    ])
+    
     # Fix stuck users button - for users stuck in disabled group
     keyboard.append([
         InlineKeyboardButton(
-            "🔧 Fix Stuck Users in Disabled Group",
+            "🔧 Fix All Stuck Users",
             callback_data="fix_stuck_users"
         )
     ])
@@ -486,6 +494,111 @@ async def fix_stuck_users_handler(query):
     except Exception as e:
         await query.edit_message_text(
             text=f"❌ Error fixing stuck users: {e}",
+            reply_markup=create_back_to_users_keyboard(),
+            parse_mode="HTML"
+        )
+
+
+async def show_users_in_disabled_group(query, page: int = 0):
+    """Show all users currently in the disabled group from the panel."""
+    from utils.panel_api import get_users_in_disabled_group
+    from utils.types import PanelType
+    
+    try:
+        await query.edit_message_text(
+            text="🔍 <b>Scanning panel for users in disabled group...</b>",
+            parse_mode="HTML"
+        )
+        
+        # Load config for panel data
+        config = await read_config()
+        panel_config = config.get("panel", {})
+        disabled_group_id = config.get("disabled_group_id", None)
+        
+        if disabled_group_id is None:
+            await query.edit_message_text(
+                text="⚠️ <b>No Disabled Group Configured</b>\n\n"
+                     "Please configure a disabled group in Settings first.",
+                reply_markup=create_back_to_users_keyboard(),
+                parse_mode="HTML"
+            )
+            return
+        
+        panel_data = PanelType(
+            panel_username=panel_config.get("username", ""),
+            panel_password=panel_config.get("password", ""),
+            panel_domain=panel_config.get("domain", "")
+        )
+        
+        # Get users in disabled group
+        stuck_users = await get_users_in_disabled_group(panel_data)
+        
+        if not stuck_users:
+            await query.edit_message_text(
+                text="✅ <b>No Users in Disabled Group</b>\n\n"
+                     f"Group ID: <code>{disabled_group_id}</code>\n\n"
+                     "No users are currently in the disabled group. Everything looks good!",
+                reply_markup=create_back_to_users_keyboard(),
+                parse_mode="HTML"
+            )
+            return
+        
+        # Paginate the users
+        per_page = 20
+        total_users = len(stuck_users)
+        total_pages = max(1, (total_users + per_page - 1) // per_page)
+        start_idx = page * per_page
+        end_idx = min(start_idx + per_page, total_users)
+        page_users = stuck_users[start_idx:end_idx]
+        
+        # Build user list text
+        user_list = "\n".join([f"• <code>{u}</code>" for u in page_users])
+        
+        text = (
+            f"👥 <b>Users in Disabled Group</b>\n\n"
+            f"🏷️ <b>Group ID:</b> <code>{disabled_group_id}</code>\n"
+            f"📊 <b>Total:</b> {total_users} users\n"
+            f"📄 <b>Page:</b> {page + 1}/{total_pages}\n\n"
+            f"{user_list}"
+        )
+        
+        # Build keyboard with pagination
+        keyboard = []
+        
+        # Pagination buttons
+        nav_buttons = []
+        if page > 0:
+            nav_buttons.append(InlineKeyboardButton("⬅️ Prev", callback_data=f"disabled_group_page:{page-1}"))
+        if page < total_pages - 1:
+            nav_buttons.append(InlineKeyboardButton("Next ➡️", callback_data=f"disabled_group_page:{page+1}"))
+        if nav_buttons:
+            keyboard.append(nav_buttons)
+        
+        # Fix all button
+        keyboard.append([
+            InlineKeyboardButton(
+                f"🔧 Fix All {total_users} Users",
+                callback_data="fix_stuck_users"
+            )
+        ])
+        
+        # Refresh and back
+        keyboard.append([
+            InlineKeyboardButton("🔄 Refresh", callback_data="view_users_in_disabled_group"),
+        ])
+        keyboard.append([
+            InlineKeyboardButton("« Back to Disabled Users", callback_data=CallbackData.SHOW_DISABLED_USERS),
+        ])
+        
+        await query.edit_message_text(
+            text=text,
+            reply_markup=InlineKeyboardMarkup(keyboard),
+            parse_mode="HTML"
+        )
+        
+    except Exception as e:
+        await query.edit_message_text(
+            text=f"❌ Error getting users in disabled group: {e}",
             reply_markup=create_back_to_users_keyboard(),
             parse_mode="HTML"
         )
