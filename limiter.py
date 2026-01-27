@@ -104,8 +104,13 @@ async def main():
     dis_users = await dis_obj.read_and_clear_users()
     if dis_users:
         main_logger.info(f"📋 Re-enabling {len(dis_users)} previously disabled users...")
-        await enable_selected_users(panel_data, dis_users)
-        main_logger.info("✓ Previously disabled users re-enabled")
+        result = await enable_selected_users(panel_data, dis_users)
+        enabled = result.get("enabled", [])
+        failed = result.get("failed", [])
+        if enabled:
+            main_logger.info(f"✓ Re-enabled {len(enabled)} previously disabled users")
+        if failed:
+            main_logger.warning(f"⚠️ Failed to re-enable {len(failed)} users: {failed}")
     else:
         main_logger.debug("No previously disabled users to re-enable")
     

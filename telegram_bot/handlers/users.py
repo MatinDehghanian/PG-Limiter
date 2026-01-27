@@ -312,14 +312,22 @@ async def enable_single_user(query, username: str):
         )
         
         # Enable user on panel
-        await enable_selected_users(panel_data, {username})
+        result = await enable_selected_users(panel_data, {username})
+        enabled = result.get("enabled", [])
+        failed = result.get("failed", [])
         
-        # Remove from disabled users list
         dis_users = DisabledUsers()
-        await dis_users.remove_user(username)
+        
+        if username in enabled:
+            # Successfully enabled - remove from disabled users list
+            await dis_users.remove_user(username)
+            await query.answer(f"✅ User {username} enabled!")
+        elif username in failed:
+            await query.answer(f"❌ Failed to enable {username}!")
+        else:
+            await query.answer(f"⚠️ Unknown result for {username}")
         
         # Show updated list
-        await query.answer(f"✅ User {username} enabled!")
         await show_disabled_users_menu(query)
         
     except Exception as e:
@@ -363,17 +371,30 @@ async def enable_all_disabled_users(query):
         )
         
         # Enable all users on panel
-        await enable_selected_users(panel_data, usernames)
+        result = await enable_selected_users(panel_data, usernames)
+        enabled = result.get("enabled", [])
+        failed = result.get("failed", [])
         
-        # Clear disabled users list
-        await dis_users.read_and_clear_users()
+        # Only remove successfully enabled users from list
+        for username in enabled:
+            await dis_users.remove_user(username)
         
-        await query.edit_message_text(
-            text=f"✅ <b>Successfully enabled {count} users!</b>\n\n"
-                 f"All disabled users have been re-enabled on the panel.",
-            reply_markup=create_back_to_users_keyboard(),
-            parse_mode="HTML"
-        )
+        if failed:
+            await query.edit_message_text(
+                text=f"⚠️ <b>Partially enabled users</b>\n\n"
+                     f"✅ <b>{len(enabled)}</b> users enabled successfully\n"
+                     f"❌ <b>{len(failed)}</b> users failed to enable\n\n"
+                     f"<i>Failed users: {', '.join(failed[:10])}{'...' if len(failed) > 10 else ''}</i>",
+                reply_markup=create_back_to_users_keyboard(),
+                parse_mode="HTML"
+            )
+        else:
+            await query.edit_message_text(
+                text=f"✅ <b>Successfully enabled {len(enabled)} users!</b>\n\n"
+                     f"All disabled users have been re-enabled on the panel.",
+                reply_markup=create_back_to_users_keyboard(),
+                parse_mode="HTML"
+            )
         
     except Exception as e:
         await query.edit_message_text(
