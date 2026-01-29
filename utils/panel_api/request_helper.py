@@ -17,6 +17,7 @@ import httpx
 
 from utils.logs import log_api_request, get_logger
 from utils.types import PanelType
+from utils.panel_api.auth import get_token, invalidate_token_cache
 
 # Module logger
 request_logger = get_logger("panel_api.request")
@@ -184,46 +185,157 @@ async def panel_request(
     return None, last_error or "All attempts failed"
 
 
+async def _get_token_for_request(panel_data: PanelType, force_refresh: bool = False) -> Optional[str]:
+    """Get a valid token for making requests."""
+    try:
+        token_result = await get_token(panel_data, force_refresh=force_refresh)
+        if isinstance(token_result, ValueError):
+            request_logger.error(f"Failed to get token: {token_result}")
+            return None
+        return token_result.panel_token
+    except Exception as e:
+        request_logger.error(f"Token acquisition error: {e}")
+        return None
+
+
 async def panel_get(
     panel_data: PanelType,
     endpoint: str,
-    token: str,
+    force_refresh: bool = False,
     **kwargs
-) -> tuple[Optional[httpx.Response], Optional[str]]:
-    """Convenience wrapper for GET requests."""
-    return await panel_request(panel_data, "GET", endpoint, token, **kwargs)
+) -> Optional[httpx.Response]:
+    """
+    Convenience wrapper for GET requests with automatic token handling.
+    
+    Args:
+        panel_data: Panel connection data
+        endpoint: API endpoint (e.g., "/api/users")
+        force_refresh: Force token refresh
+        **kwargs: Additional arguments passed to panel_request
+    
+    Returns:
+        Response on success, None on failure
+    """
+    token = await _get_token_for_request(panel_data, force_refresh)
+    if not token:
+        return None
+    
+    response, error = await panel_request(panel_data, "GET", endpoint, token, **kwargs)
+    
+    # On 401, retry with fresh token
+    if response and response.status_code == 401 and not force_refresh:
+        await invalidate_token_cache()
+        token = await _get_token_for_request(panel_data, force_refresh=True)
+        if token:
+            response, error = await panel_request(panel_data, "GET", endpoint, token, **kwargs)
+    
+    return response
 
 
 async def panel_post(
     panel_data: PanelType,
     endpoint: str,
-    token: str,
     json_data: Optional[dict] = None,
+    force_refresh: bool = False,
     **kwargs
-) -> tuple[Optional[httpx.Response], Optional[str]]:
-    """Convenience wrapper for POST requests."""
-    return await panel_request(panel_data, "POST", endpoint, token, json_data=json_data, **kwargs)
+) -> Optional[httpx.Response]:
+    """
+    Convenience wrapper for POST requests with automatic token handling.
+    
+    Args:
+        panel_data: Panel connection data
+        endpoint: API endpoint
+        json_data: JSON body for the request
+        force_refresh: Force token refresh
+        **kwargs: Additional arguments passed to panel_request
+    
+    Returns:
+        Response on success, None on failure
+    """
+    token = await _get_token_for_request(panel_data, force_refresh)
+    if not token:
+        return None
+    
+    response, error = await panel_request(panel_data, "POST", endpoint, token, json_data=json_data, **kwargs)
+    
+    # On 401, retry with fresh token
+    if response and response.status_code == 401 and not force_refresh:
+        await invalidate_token_cache()
+        token = await _get_token_for_request(panel_data, force_refresh=True)
+        if token:
+            response, error = await panel_request(panel_data, "POST", endpoint, token, json_data=json_data, **kwargs)
+    
+    return response
 
 
 async def panel_put(
     panel_data: PanelType,
     endpoint: str,
-    token: str,
     json_data: Optional[dict] = None,
+    force_refresh: bool = False,
     **kwargs
-) -> tuple[Optional[httpx.Response], Optional[str]]:
-    """Convenience wrapper for PUT requests."""
-    return await panel_request(panel_data, "PUT", endpoint, token, json_data=json_data, **kwargs)
+) -> Optional[httpx.Response]:
+    """
+    Convenience wrapper for PUT requests with automatic token handling.
+    
+    Args:
+        panel_data: Panel connection data
+        endpoint: API endpoint
+        json_data: JSON body for the request
+        force_refresh: Force token refresh
+        **kwargs: Additional arguments passed to panel_request
+    
+    Returns:
+        Response on success, None on failure
+    """
+    token = await _get_token_for_request(panel_data, force_refresh)
+    if not token:
+        return None
+    
+    response, error = await panel_request(panel_data, "PUT", endpoint, token, json_data=json_data, **kwargs)
+    
+    # On 401, retry with fresh token
+    if response and response.status_code == 401 and not force_refresh:
+        await invalidate_token_cache()
+        token = await _get_token_for_request(panel_data, force_refresh=True)
+        if token:
+            response, error = await panel_request(panel_data, "PUT", endpoint, token, json_data=json_data, **kwargs)
+    
+    return response
 
 
 async def panel_delete(
     panel_data: PanelType,
     endpoint: str,
-    token: str,
+    force_refresh: bool = False,
     **kwargs
-) -> tuple[Optional[httpx.Response], Optional[str]]:
-    """Convenience wrapper for DELETE requests."""
-    return await panel_request(panel_data, "DELETE", endpoint, token, **kwargs)
+) -> Optional[httpx.Response]:
+    """
+    Convenience wrapper for DELETE requests with automatic token handling.
+    
+    Args:
+        panel_data: Panel connection data
+        endpoint: API endpoint
+        force_refresh: Force token refresh
+        **kwargs: Additional arguments passed to panel_request
+    
+    Returns:
+        Response on success, None on failure
+    """
+    token = await _get_token_for_request(panel_data, force_refresh)
+    if not token:
+        return None
+    
+    response, error = await panel_request(panel_data, "DELETE", endpoint, token, **kwargs)
+    
+    # On 401, retry with fresh token
+    if response and response.status_code == 401 and not force_refresh:
+        await invalidate_token_cache()
+        token = await _get_token_for_request(panel_data, force_refresh=True)
+        if token:
+            response, error = await panel_request(panel_data, "DELETE", endpoint, token, **kwargs)
+    
+    return response
 
 
 def get_panel_health() -> dict:
