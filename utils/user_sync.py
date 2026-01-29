@@ -316,11 +316,27 @@ async def sync_users_to_database(panel_data: PanelType) -> tuple[int, int, int]:
             # Only delete if sync was mostly successful (less than 10% errors)
             # and we received a reasonable number of users from panel
             potentially_deleted = list(local_usernames - panel_usernames)
+            error_rate = errors / max(len(users), 1)
             
             if potentially_deleted:
+                # Check if auto-deletion is enabled in config
+                from utils.read_config import read_config
+                config = await read_config()
+                auto_delete_enabled = config.get("user_sync", {}).get("auto_delete_users", False)
+                
+                if not auto_delete_enabled:
+                    sync_logger.info(
+                        f"ℹ️ Auto-deletion disabled. {len(potentially_deleted)} users not in panel but kept in local DB. "
+                        f"Enable 'auto_delete_users' in config or use Telegram bot to review."
+                    )
+                    # Log the users that would have been deleted
+                    if len(potentially_deleted) <= 20:
+                        sync_logger.info(f"Users not in panel: {', '.join(potentially_deleted)}")
+                    else:
+                        sync_logger.info(f"Users not in panel (first 20): {', '.join(potentially_deleted[:20])}...")
+                
                 # Safety check 1: Don't delete if there were too many sync errors
-                error_rate = errors / max(len(users), 1)
-                if error_rate > 0.1:  # More than 10% errors
+                elif error_rate > 0.1:  # More than 10% errors
                     sync_logger.warning(
                         f"⚠️ Skipping deletion: too many sync errors ({errors}/{len(users)} = {error_rate:.1%})"
                     )
@@ -332,13 +348,19 @@ async def sync_users_to_database(panel_data: PanelType) -> tuple[int, int, int]:
                         f"({len(panel_usernames)} vs {len(local_usernames)} local). "
                         f"This may indicate an API issue."
                     )
-                # Safety check 3: Don't delete more than 20% of users in one sync
-                elif len(potentially_deleted) > len(local_usernames) * 0.2:
+                # Safety check 3: Don't delete more than 10% of users in one sync (stricter)
+                elif len(potentially_deleted) > len(local_usernames) * 0.1:
                     sync_logger.warning(
                         f"⚠️ Skipping deletion: too many users to delete "
                         f"({len(potentially_deleted)}/{len(local_usernames)} = "
                         f"{len(potentially_deleted)/len(local_usernames):.1%}). "
-                        f"Manual review recommended."
+                        f"Manual review recommended via Telegram bot."
+                    )
+                # Safety check 4: Don't delete more than 50 users at once
+                elif len(potentially_deleted) > 50:
+                    sync_logger.warning(
+                        f"⚠️ Skipping deletion: {len(potentially_deleted)} users is too many to delete at once. "
+                        f"Manual review recommended via Telegram bot."
                     )
                 else:
                     # All safety checks passed - proceed with deletion

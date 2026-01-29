@@ -667,6 +667,8 @@ async def handle_disable_by_group_callback(query, _context: ContextTypes.DEFAULT
 
 async def handle_select_disabled_group_callback(query, _context: ContextTypes.DEFAULT_TYPE, group_id: int):
     """Handle callback for selecting specific disabled group."""
+    from telegram_bot.keyboards import create_disable_method_keyboard
+    
     try:
         await save_config_value("disable_method", "group")
         await save_config_value("disabled_group_id", str(group_id))
@@ -680,13 +682,12 @@ async def handle_select_disabled_group_callback(query, _context: ContextTypes.DE
                 break
         
         await query.edit_message_text(
-            text=f"✅ <b>Disable Method Updated</b>\n\n"
-                 f"Method: <b>By Group</b>\n"
+            text="🚫 <b>Disable Method</b>\n\n"
+                 f"✅ Method set to <b>By Group</b>\n"
                  f"Group: <b>{group_name}</b> (ID: {group_id})\n\n"
-                 f"Users exceeding IP limits will be moved to this group.",
-            reply_markup=InlineKeyboardMarkup([
-                [InlineKeyboardButton("« Back to Settings", callback_data=CallbackData.SETTINGS_MENU)]
-            ]),
+                 "• <b>By Status</b>: Set user status to 'disabled'\n"
+                 "• <b>By Group</b>: Move user to a disabled group",
+            reply_markup=create_disable_method_keyboard("group", group_name),
             parse_mode="HTML"
         )
         

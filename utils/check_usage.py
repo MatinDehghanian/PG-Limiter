@@ -26,13 +26,15 @@ ACTIVE_USERS: dict[str, UserType] | dict = {}
 warning_system = EnhancedWarningSystem()
 isp_detector = None  # Will be initialized when needed
 
-# Pattern to match usernames ending with .X.User where X is a number
+# Pattern to match usernames ending with .X.User where X is a number (e.g., amir.2.User)
 USERNAME_LIMIT_PATTERN = re.compile(r'\.(\d+)\.User$')
+# Pattern to match usernames ending with XUser where X is a number (e.g., Bastami22User, MVHHe2User)
+USERNAME_LIMIT_PATTERN_SIMPLE = re.compile(r'(\d+)User$')
 
 
 def extract_limit_from_username(username: str) -> int | None:
     """
-    Extract limit number from username if it ends with pattern like .2.User.
+    Extract limit number from username if it ends with pattern like .2.User or 2User.
     
     Args:
         username: The username to check
@@ -43,11 +45,23 @@ def extract_limit_from_username(username: str) -> int | None:
     Examples:
         "amir.1.User" -> 1
         "mjd.2.User" -> 2
+        "Bastami22User" -> 2 (takes last digit before 'User')
+        "MVHHe2User" -> 2
         "normal_user" -> None
     """
+    # First try the .X.User pattern
     match = USERNAME_LIMIT_PATTERN.search(username)
     if match:
         return int(match.group(1))
+    
+    # Then try the simple XUser pattern (like 2User at the end)
+    match = USERNAME_LIMIT_PATTERN_SIMPLE.search(username)
+    if match:
+        # Get the number - if it's multi-digit like "22User", take the last digit
+        number_str = match.group(1)
+        # Take only the last digit to get the limit
+        return int(number_str[-1])
+    
     return None
 
 

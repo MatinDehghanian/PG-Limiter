@@ -256,14 +256,21 @@ def create_enhanced_details_keyboard():
     return InlineKeyboardMarkup(keyboard)
 
 
-def create_disable_method_keyboard():
-    """Create disable method selection keyboard."""
+def create_disable_method_keyboard(current_method: str = "status", disabled_group_name: str = None):
+    """Create disable method selection keyboard with current selection highlighted."""
+    status_prefix = "✅" if current_method == "status" else "⬜"
+    group_prefix = "✅" if current_method == "group" else "⬜"
+    
+    group_label = "📁 By Group"
+    if current_method == "group" and disabled_group_name:
+        group_label = f"📁 By Group ({disabled_group_name})"
+    
     keyboard = [
         [
-            InlineKeyboardButton("🚫 By Status (disabled)", callback_data=CallbackData.DISABLE_BY_STATUS),
+            InlineKeyboardButton(f"{status_prefix} 🚫 By Status (disabled)", callback_data=CallbackData.DISABLE_BY_STATUS),
         ],
         [
-            InlineKeyboardButton("📁 By Group", callback_data=CallbackData.DISABLE_BY_GROUP),
+            InlineKeyboardButton(f"{group_prefix} {group_label}", callback_data=CallbackData.DISABLE_BY_GROUP),
         ],
         [
             InlineKeyboardButton("🔙 Back", callback_data=CallbackData.BACK_SETTINGS),
