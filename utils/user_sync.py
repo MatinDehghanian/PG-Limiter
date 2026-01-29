@@ -467,15 +467,26 @@ async def fetch_and_sync_single_user(username: str, panel_data: Optional[PanelTy
     try:
         sync_logger.info(f"🔄 Fetching single user from panel: {username}")
         
+        # Validate username
+        if not username or not username.strip():
+            sync_logger.warning("⚠️ Cannot fetch user with empty username")
+            return None
+        
         # Get panel_data from config if not provided
         if panel_data is None:
             from utils.read_config import read_config
             config = await read_config()
+            panel_config = config.get("panel", {})
             panel_data = PanelType(
-                panel_username=config.get("panel_username", ""),
-                panel_password=config.get("panel_password", ""),
-                panel_domain=config.get("panel_domain", ""),
+                panel_username=panel_config.get("username", ""),
+                panel_password=panel_config.get("password", ""),
+                panel_domain=panel_config.get("domain", ""),
             )
+        
+        # Validate panel_data has required fields
+        if not panel_data.panel_domain:
+            sync_logger.error("❌ Panel domain is not configured - cannot fetch user from panel")
+            return None
         
         # Fetch user details from panel
         from utils.panel_api import get_user_details

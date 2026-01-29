@@ -353,7 +353,8 @@ async def parse_logs(log: str, node_id: int = None, node_name: str = None) -> di
         if email_match:
             email = email_match.group(1)
             email = await remove_id_from_username(email)
-            if email in INVALID_EMAILS:
+            # Skip empty usernames or invalid emails
+            if not email or not email.strip() or email in INVALID_EMAILS:
                 continue
         else:
             continue

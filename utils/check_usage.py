@@ -276,6 +276,10 @@ async def check_ip_used() -> dict:
     all_actual_ips = set()
     
     for email in list(ACTIVE_USERS.keys()):
+        # Skip empty usernames
+        if not email or not email.strip():
+            continue
+        
         data = ACTIVE_USERS[email]
         
         # Add ALL IPs for total count
@@ -326,6 +330,10 @@ async def check_ip_used() -> dict:
     # Create enhanced user info with ISP details (only for non-filtered users)
     for email, formatted_ips in all_users_log.items():
         if not formatted_ips:
+            continue
+        
+        # Skip empty usernames
+        if not email or not email.strip():
             continue
         
         # Skip filtered users
