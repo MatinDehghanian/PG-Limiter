@@ -35,12 +35,17 @@ INVALID_IPS = {
 VALID_IPS = []
 CACHE = {}
 
-API_ENDPOINTS = {
-    "http://ip-api.com/json/": "countryCode",
-    "https://ipinfo.io/": "country",
-    "https://api.iplocation.net/?ip=": "country_code2",
-    "https://ipapi.co/": None,
-}
+# API endpoints with fallback order (from most reliable to least)
+API_ENDPOINTS = [
+    {"url": "http://ip-api.com/json/{ip}?fields=countryCode", "key": "countryCode", "name": "ip-api.com"},
+    {"url": "https://ipinfo.io/{ip}/json", "key": "country", "name": "ipinfo.io"},
+    {"url": "https://api.iplocation.net/?ip={ip}", "key": "country_code2", "name": "iplocation.net"},
+    {"url": "https://ipapi.co/{ip}/country", "key": None, "name": "ipapi.co"},
+]
+
+# Track failed endpoints to prioritize working ones
+_endpoint_failures = {endpoint["name"]: 0 for endpoint in API_ENDPOINTS}
+_endpoint_last_success = {endpoint["name"]: 0 for endpoint in API_ENDPOINTS}
 
 
 async def remove_id_from_username(username: str) -> str:
@@ -57,10 +62,11 @@ async def remove_id_from_username(username: str) -> str:
 
 async def check_ip(ip_address: str) -> None | str:
     """
-    Check the geographical location of an IP address.
+    Check the geographical location of an IP address with fallback through multiple APIs.
 
     Get the location of the IP address.
     The result is cached to avoid unnecessary requests for the same IP address.
+    Uses fallback mechanism - if one API fails, tries the next one.
 
     Args:
         ip_address (str): The IP address to check.
@@ -68,22 +74,59 @@ async def check_ip(ip_address: str) -> None | str:
     Returns:
         str: The country code of the IP address location, or None
     """
+    global _endpoint_failures, _endpoint_last_success
+    
     if ip_address in CACHE:
         return CACHE[ip_address]
-    endpoint, key = random.choice(list(API_ENDPOINTS.items()))
-    url = endpoint + ip_address
-    if "ipapi.co" in endpoint:
-        url += "/country"
-    try:
-        async with httpx.AsyncClient(verify=False) as client:
-            resp = await client.get(url, timeout=2)
-        info = resp.json()
-        country = info.get(key) if key else resp.text
-        if country:
-            CACHE[ip_address] = country
-        return country
-    except Exception:  # pylint: disable=broad-except
-        return None
+    
+    # Sort endpoints by reliability (fewer failures first, recent success preferred)
+    current_time = time.time()
+    sorted_endpoints = sorted(
+        API_ENDPOINTS,
+        key=lambda e: (
+            _endpoint_failures.get(e["name"], 0),
+            -(current_time - _endpoint_last_success.get(e["name"], 0))
+        )
+    )
+    
+    last_error = None
+    for endpoint in sorted_endpoints:
+        url = endpoint["url"].format(ip=ip_address)
+        key = endpoint["key"]
+        name = endpoint["name"]
+        
+        try:
+            async with httpx.AsyncClient(verify=False, timeout=5) as client:
+                resp = await client.get(url, timeout=3)
+                
+                if resp.status_code == 200:
+                    if key is None:
+                        # Direct text response (like ipapi.co/country)
+                        country = resp.text.strip()
+                    else:
+                        info = resp.json()
+                        country = info.get(key)
+                    
+                    if country and len(country) == 2:  # Valid country code
+                        CACHE[ip_address] = country
+                        _endpoint_failures[name] = max(0, _endpoint_failures.get(name, 0) - 1)
+                        _endpoint_last_success[name] = current_time
+                        return country
+                elif resp.status_code == 429:
+                    # Rate limited - increase failure count
+                    _endpoint_failures[name] = _endpoint_failures.get(name, 0) + 3
+                else:
+                    _endpoint_failures[name] = _endpoint_failures.get(name, 0) + 1
+                    
+        except httpx.TimeoutException:
+            _endpoint_failures[name] = _endpoint_failures.get(name, 0) + 2
+            last_error = f"Timeout on {name}"
+        except Exception as e:
+            _endpoint_failures[name] = _endpoint_failures.get(name, 0) + 1
+            last_error = f"{name}: {type(e).__name__}"
+    
+    # All endpoints failed
+    return None
 
 
 async def is_valid_ip(ip: str) -> bool:

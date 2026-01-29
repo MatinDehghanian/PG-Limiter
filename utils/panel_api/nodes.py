@@ -2,16 +2,12 @@
 Node operations for panel API.
 """
 
-import asyncio
-import random
 import time
-from ssl import SSLError
 
-import httpx
-
-from utils.logs import logger, log_api_request, get_logger
+from utils.logs import get_logger
 from utils.types import PanelType, NodeType
-from utils.panel_api.auth import get_token, invalidate_token_cache, safe_send_logs_panel
+from utils.panel_api.auth import safe_send_logs_panel
+from utils.panel_api.request_helper import panel_get
 
 # Try to import Redis cache
 try:
@@ -100,139 +96,93 @@ async def get_nodes(
             return _nodes_cache["nodes"]
     
     nodes_logger.info(f"🖥️ Fetching nodes from panel (force_refresh={force_refresh})...")
-    max_attempts = 5
-    for attempt in range(max_attempts):
-        nodes_logger.debug(f"🖥️ Attempt {attempt + 1}/{max_attempts}")
-        force_refresh_token = attempt > 0
-        get_panel_token = await get_token(panel_data, force_refresh=force_refresh_token)
-        if isinstance(get_panel_token, ValueError):
-            raise get_panel_token
-        token = get_panel_token.panel_token
-        headers = {
-            "Authorization": f"Bearer {token}",
-        }
-        all_nodes = []
-        for scheme in ["https", "http"]:
-            # Build URL with optional enabled filter
-            base_url = f"{scheme}://{panel_data.panel_domain}/api/nodes"
-            if enabled_only:
-                url = f"{base_url}?enabled=true"
+    
+    # Build endpoint with optional enabled filter
+    endpoint = "/api/nodes?enabled=true" if enabled_only else "/api/nodes"
+    
+    response = await panel_get(panel_data, endpoint, force_refresh=force_refresh)
+    
+    if response is None:
+        message = (
+            "Failed to get nodes after all retries. Make sure the panel is running "
+            "and the username and password are correct."
+        )
+        await safe_send_logs_panel(message)
+        nodes_logger.error(message)
+        raise ValueError(message)
+    
+    try:
+        user_inform = response.json()
+    except Exception as json_error:
+        nodes_logger.error(f"Failed to parse JSON: {json_error}")
+        raise ValueError(f"Failed to parse nodes response: {json_error}")
+    
+    # Handle both list and dict responses
+    nodes_list = None
+    if isinstance(user_inform, list):
+        nodes_list = user_inform
+    elif isinstance(user_inform, dict):
+        if "nodes" in user_inform:
+            nodes_list = user_inform["nodes"]
+        elif "data" in user_inform:
+            nodes_list = user_inform["data"]
+        else:
+            nodes_logger.warning(f"Unexpected nodes dict structure. Keys: {list(user_inform.keys())}")
+            if "id" in user_inform and "name" in user_inform:
+                nodes_list = [user_inform]
             else:
-                url = base_url
-            start_time = time.perf_counter()
-            try:
-                async with httpx.AsyncClient(verify=False) as client:
-                    response = await client.get(url, headers=headers, timeout=10)
-                    elapsed = (time.perf_counter() - start_time) * 1000
-                    response.raise_for_status()
-                
-                log_api_request("GET", url, response.status_code, elapsed)
-                
-                try:
-                    user_inform = response.json()
-                except Exception as json_error:
-                    nodes_logger.error(f"Failed to parse JSON from {url}: {json_error}")
-                    nodes_logger.debug(f"Response text: {response.text[:200]}")
-                    continue
-                
-                # Handle both list and dict responses
-                nodes_list = None
-                if isinstance(user_inform, list):
-                    nodes_list = user_inform
-                elif isinstance(user_inform, dict):
-                    if "nodes" in user_inform:
-                        nodes_list = user_inform["nodes"]
-                    elif "data" in user_inform:
-                        nodes_list = user_inform["data"]
-                    else:
-                        nodes_logger.warning(f"Unexpected nodes dict structure. Keys: {list(user_inform.keys())}")
-                        if "id" in user_inform and "name" in user_inform:
-                            nodes_list = [user_inform]
-                        else:
-                            nodes_logger.error(f"Cannot parse nodes from dict: {user_inform}")
-                            continue
-                else:
-                    nodes_logger.error(f"Nodes response is neither list nor dict: {type(user_inform)}")
-                    continue
-                
-                if not nodes_list or not isinstance(nodes_list, list):
-                    nodes_logger.error(f"Failed to extract nodes list from response")
-                    continue
-                
-                for node in nodes_list:
-                    all_nodes.append(
-                        NodeType(
-                            node_id=node["id"],
-                            node_name=node["name"],
-                            node_ip=node["address"],
-                            status=node["status"],
-                            message=node.get("message", ""),
-                        )
-                    )
-                
-                # Cache the nodes list for 1 hour (3600 seconds)
-                # Store in Redis if available
-                if REDIS_CACHE_AVAILABLE:
-                    try:
-                        # Convert NodeType objects to dicts for JSON serialization
-                        nodes_dicts = [
-                            {
-                                "node_id": n.node_id,
-                                "node_name": n.node_name,
-                                "node_ip": n.node_ip,
-                                "status": n.status,
-                                "message": n.message,
-                            }
-                            for n in all_nodes
-                        ]
-                        await cache_nodes(panel_data.panel_domain, nodes_dicts)
-                        nodes_logger.debug("🖥️ Nodes cached in Redis")
-                    except Exception as e:
-                        nodes_logger.warning(f"Failed to cache nodes in Redis: {e}")
-                
-                # Always store in in-memory cache as fallback
-                _nodes_cache["nodes"] = all_nodes
-                _nodes_cache["expires_at"] = time.time() + 3600
-                _nodes_cache["panel_domain"] = panel_data.panel_domain
-                
-                nodes_logger.info(f"🖥️ Fetched {len(all_nodes)} nodes (cached for 1 hour) [{elapsed:.0f}ms]")
-                for node in all_nodes:
-                    nodes_logger.debug(f"  └─ {node.node_name} (id={node.node_id}, status={node.status})")
-                
-                return all_nodes
-            except SSLError:
-                elapsed = (time.perf_counter() - start_time) * 1000
-                log_api_request("GET", url, None, elapsed, "SSL Error")
-                continue
-            except httpx.HTTPStatusError:
-                elapsed = (time.perf_counter() - start_time) * 1000
-                if response.status_code == 401:
-                    await invalidate_token_cache()
-                    nodes_logger.warning("Got 401 error, invalidating token cache and retrying")
-                log_api_request("GET", url, response.status_code, elapsed, f"HTTP {response.status_code}")
-                message = f"[{response.status_code}] {response.text}"
-                await safe_send_logs_panel(message)
+                message = f"Cannot parse nodes from dict: {user_inform}"
                 nodes_logger.error(message)
-                continue
-            except httpx.TimeoutException:
-                elapsed = (time.perf_counter() - start_time) * 1000
-                log_api_request("GET", url, None, elapsed, "Timeout")
-                nodes_logger.warning(f"Timeout fetching nodes from {url}")
-                continue
-            except Exception as error:  # pylint: disable=broad-except
-                elapsed = (time.perf_counter() - start_time) * 1000
-                log_api_request("GET", url, None, elapsed, str(error))
-                message = f"An unexpected error occurred: {error}"
-                await safe_send_logs_panel(message)
-                nodes_logger.error(message)
-                continue
-        wait_time = min(30, random.randint(2, 5) * (attempt + 1))
-        nodes_logger.debug(f"Waiting {wait_time}s before retry...")
-        await asyncio.sleep(wait_time)
-    message = (
-        f"Failed to get nodes after {max_attempts} attempts. Make sure the panel is running "
-        + "and the username and password are correct."
-    )
-    await safe_send_logs_panel(message)
-    nodes_logger.error(message)
-    raise ValueError(message)
+                raise ValueError(message)
+    else:
+        message = f"Nodes response is neither list nor dict: {type(user_inform)}"
+        nodes_logger.error(message)
+        raise ValueError(message)
+    
+    if not nodes_list or not isinstance(nodes_list, list):
+        message = "Failed to extract nodes list from response"
+        nodes_logger.error(message)
+        raise ValueError(message)
+    
+    all_nodes = []
+    for node in nodes_list:
+        all_nodes.append(
+            NodeType(
+                node_id=node["id"],
+                node_name=node["name"],
+                node_ip=node["address"],
+                status=node["status"],
+                message=node.get("message", ""),
+            )
+        )
+    
+    # Cache the nodes list for 1 hour (3600 seconds)
+    # Store in Redis if available
+    if REDIS_CACHE_AVAILABLE:
+        try:
+            # Convert NodeType objects to dicts for JSON serialization
+            nodes_dicts = [
+                {
+                    "node_id": n.node_id,
+                    "node_name": n.node_name,
+                    "node_ip": n.node_ip,
+                    "status": n.status,
+                    "message": n.message,
+                }
+                for n in all_nodes
+            ]
+            await cache_nodes(panel_data.panel_domain, nodes_dicts)
+            nodes_logger.debug("🖥️ Nodes cached in Redis")
+        except Exception as e:
+            nodes_logger.warning(f"Failed to cache nodes in Redis: {e}")
+    
+    # Always store in in-memory cache as fallback
+    _nodes_cache["nodes"] = all_nodes
+    _nodes_cache["expires_at"] = time.time() + 3600
+    _nodes_cache["panel_domain"] = panel_data.panel_domain
+    
+    nodes_logger.info(f"🖥️ Fetched {len(all_nodes)} nodes (cached for 1 hour)")
+    for node in all_nodes:
+        nodes_logger.debug(f"  └─ {node.node_name} (id={node.node_id}, status={node.status})")
+    
+    return all_nodes
