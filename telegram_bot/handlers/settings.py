@@ -986,11 +986,14 @@ async def handle_force_delete_callback(query, context: ContextTypes.DEFAULT_TYPE
 # ═══════════════════════════════════════════════════════════════════════════════
 
 
-def create_cdn_mode_keyboard():
+def create_cdn_mode_keyboard(use_xff: bool = True, provider: str = "cloudflare"):
     """Create CDN mode settings keyboard."""
+    xff_status = "✅" if use_xff else "❌"
     keyboard = [
         [InlineKeyboardButton("➕ Add Inbound", callback_data=CallbackData.CDN_MODE_ADD)],
         [InlineKeyboardButton("➖ Remove Inbound", callback_data=CallbackData.CDN_MODE_REMOVE)],
+        [InlineKeyboardButton(f"{xff_status} Use X-Forwarded-For", callback_data=CallbackData.CDN_USE_XFF_TOGGLE)],
+        [InlineKeyboardButton(f"📡 Provider: {provider.title()}", callback_data=CallbackData.CDN_PROVIDER_MENU)],
         [InlineKeyboardButton("🗑️ Clear All", callback_data=CallbackData.CDN_MODE_CLEAR)],
         [InlineKeyboardButton("« Back to Settings", callback_data=CallbackData.SETTINGS_MENU)],
     ]
@@ -1001,6 +1004,8 @@ async def cdn_mode_menu_callback(query, context: ContextTypes.DEFAULT_TYPE):
     """Handle CDN mode menu callback."""
     config_data = await read_config()
     cdn_inbounds = config_data.get("cdn_inbounds", [])
+    use_xff = config_data.get("cdn_use_xff", True)
+    provider = config_data.get("cdn_provider", "cloudflare")
     
     if cdn_inbounds:
         inbounds_list = "\n".join(f"  • <code>{inbound}</code>" for inbound in cdn_inbounds)
@@ -1008,17 +1013,21 @@ async def cdn_mode_menu_callback(query, context: ContextTypes.DEFAULT_TYPE):
     else:
         status_text = "<i>No inbounds in CDN mode</i>"
     
+    xff_status = "✅ Enabled" if use_xff else "❌ Disabled"
+    
     await query.edit_message_text(
         text=(
             "☁️ <b>CDN Mode Settings</b>\n\n"
             f"{status_text}\n\n"
+            f"<b>Provider:</b> {provider.title()}\n"
+            f"<b>X-Forwarded-For:</b> {xff_status}\n\n"
             "<b>How it works:</b>\n"
-            "When an inbound is in CDN mode, all IPs from that inbound "
-            "count as <b>1 device</b>, regardless of how many unique IPs are seen.\n\n"
-            "This is useful for inbounds behind CDN (like Cloudflare) where "
-            "each request may come from a different CDN edge IP."
+            "When an inbound is in CDN mode and X-Forwarded-For is enabled, "
+            "the system will extract the <b>real user IP</b> from the "
+            "X-Forwarded-For header instead of using the CDN edge IP.\n\n"
+            "This allows accurate IP counting for users behind CDN."
         ),
-        reply_markup=create_cdn_mode_keyboard(),
+        reply_markup=create_cdn_mode_keyboard(use_xff, provider),
         parse_mode="HTML"
     )
 
@@ -1052,11 +1061,13 @@ async def cdn_mode_remove_callback(query, context: ContextTypes.DEFAULT_TYPE):
     """Handle removing an inbound from CDN mode."""
     config_data = await read_config()
     cdn_inbounds = config_data.get("cdn_inbounds", [])
+    use_xff = config_data.get("cdn_use_xff", True)
+    provider = config_data.get("cdn_provider", "cloudflare")
     
     if not cdn_inbounds:
         await query.edit_message_text(
             text="❌ No inbounds are currently in CDN mode.",
-            reply_markup=create_cdn_mode_keyboard(),
+            reply_markup=create_cdn_mode_keyboard(use_xff, provider),
             parse_mode="HTML"
         )
         return
@@ -1111,6 +1122,53 @@ async def cdn_mode_clear_callback(query, context: ContextTypes.DEFAULT_TYPE):
     await cdn_mode_menu_callback(query, context)
 
 
+async def cdn_use_xff_toggle_callback(query, context: ContextTypes.DEFAULT_TYPE):
+    """Handle toggling X-Forwarded-For extraction."""
+    config_data = await read_config()
+    current_xff = config_data.get("cdn_use_xff", True)
+    
+    # Toggle the value
+    new_xff = not current_xff
+    await save_config_value("cdn_use_xff", "true" if new_xff else "false")
+    
+    status = "enabled" if new_xff else "disabled"
+    await query.answer(f"✅ X-Forwarded-For extraction {status}")
+    await cdn_mode_menu_callback(query, context)
+
+
+async def cdn_provider_menu_callback(query, context: ContextTypes.DEFAULT_TYPE):
+    """Handle CDN provider selection menu."""
+    config_data = await read_config()
+    current_provider = config_data.get("cdn_provider", "cloudflare")
+    
+    # Currently only Cloudflare is supported
+    cf_prefix = "✅" if current_provider == "cloudflare" else "⬜"
+    
+    keyboard = [
+        [InlineKeyboardButton(f"{cf_prefix} Cloudflare", callback_data=CallbackData.CDN_PROVIDER_CLOUDFLARE)],
+        [InlineKeyboardButton("« Back", callback_data=CallbackData.CDN_MODE_MENU)],
+    ]
+    
+    await query.edit_message_text(
+        text=(
+            "📡 <b>CDN Provider</b>\n\n"
+            "Select the CDN provider for your inbounds:\n\n"
+            f"Current: <b>{current_provider.title()}</b>\n\n"
+            "<i>Currently only Cloudflare is supported.\n"
+            "More providers may be added in the future.</i>"
+        ),
+        reply_markup=InlineKeyboardMarkup(keyboard),
+        parse_mode="HTML"
+    )
+
+
+async def cdn_provider_cloudflare_callback(query, context: ContextTypes.DEFAULT_TYPE):
+    """Handle setting CDN provider to Cloudflare."""
+    await save_config_value("cdn_provider", "cloudflare")
+    await query.answer("✅ CDN provider set to Cloudflare")
+    await cdn_mode_menu_callback(query, context)
+
+
 async def cdn_mode_add_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handle text input for adding CDN inbound."""
     from telegram.ext import ConversationHandler
@@ -1118,10 +1176,16 @@ async def cdn_mode_add_handler(update: Update, context: ContextTypes.DEFAULT_TYP
     
     text = update.message.text.strip()
     
+    # Load current CDN inbounds for keyboard
+    config_data = await read_config()
+    use_xff = config_data.get("cdn_use_xff", True)
+    provider = config_data.get("cdn_provider", "cloudflare")
+    cdn_inbounds = config_data.get("cdn_inbounds", [])
+    
     if text.lower() == "/cancel":
         await update.message.reply_html(
             "❌ Cancelled.",
-            reply_markup=create_cdn_mode_keyboard()
+            reply_markup=create_cdn_mode_keyboard(use_xff, provider)
         )
         return ConversationHandler.END
     
@@ -1131,15 +1195,11 @@ async def cdn_mode_add_handler(update: Update, context: ContextTypes.DEFAULT_TYP
         )
         return SET_CDN_INBOUND
     
-    # Load current CDN inbounds
-    config_data = await read_config()
-    cdn_inbounds = config_data.get("cdn_inbounds", [])
-    
     # Check if already exists
     if text in cdn_inbounds:
         await update.message.reply_html(
             f"⚠️ <code>{text}</code> is already in CDN mode.",
-            reply_markup=create_cdn_mode_keyboard()
+            reply_markup=create_cdn_mode_keyboard(use_xff, provider)
         )
         return ConversationHandler.END
     
@@ -1149,8 +1209,8 @@ async def cdn_mode_add_handler(update: Update, context: ContextTypes.DEFAULT_TYP
     
     await update.message.reply_html(
         f"✅ Added <code>{text}</code> to CDN mode.\n\n"
-        "All IPs from this inbound will now count as <b>1 device</b>.",
-        reply_markup=create_cdn_mode_keyboard()
+        "Real user IPs will be extracted from X-Forwarded-For header.",
+        reply_markup=create_cdn_mode_keyboard(use_xff, provider)
     )
     
     return ConversationHandler.END

@@ -268,6 +268,12 @@ async def read_config(check_required_elements: bool = False) -> Dict[str, Any]:
             x.strip() for x in cdn_inbounds_str.split(",") if x.strip()
         ]
     
+    # CDN provider type (cloudflare, custom)
+    config["cdn_provider"] = db_config.get("cdn_provider", "cloudflare")
+    
+    # Whether to use X-Forwarded-For to extract real IP for CDN inbounds
+    config["cdn_use_xff"] = db_config.get("cdn_use_xff", "true").lower() == "true"
+    
     # CDN nodes - list of node IDs that are behind CDN
     # All IPs from CDN nodes count as 1 device (similar to cdn_inbounds but per-node)
     config["cdn_nodes"] = []

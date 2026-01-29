@@ -67,6 +67,9 @@ from telegram_bot.handlers.settings import (
     handle_user_sync_menu_callback,
     handle_user_sync_interval_callback,
     handle_user_sync_now_callback,
+    cdn_use_xff_toggle_callback,
+    cdn_provider_menu_callback,
+    cdn_provider_cloudflare_callback,
 )
 
 from telegram_bot.handlers.monitoring import (
@@ -190,6 +193,9 @@ __all__ = [
     "handle_user_sync_menu_callback",
     "handle_user_sync_interval_callback",
     "handle_user_sync_now_callback",
+    "cdn_use_xff_toggle_callback",
+    "cdn_provider_menu_callback",
+    "cdn_provider_cloudflare_callback",
     # Monitoring handlers
     "monitoring_status",
     "monitoring_details",

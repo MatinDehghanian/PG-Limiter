@@ -109,9 +109,25 @@ IP_V6_REGEX = re.compile(r"\[([0-9a-fA-F:]+)\]:\d+\s+accepted")
 IP_V4_REGEX = re.compile(r"(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})")
 EMAIL_REGEX = re.compile(r"email:\s*([A-Za-z0-9._%+-]+)")
 INBOUND_REGEX = re.compile(r"\[([^\]]+)\s+>>\s+[^\]]+\]")
+# Regex for X-Forwarded-For header in logs (Cloudflare and other CDNs)
+# Format examples:
+#   xForwardedFor: 1.2.3.4
+#   X-Forwarded-For: 1.2.3.4
+#   xff: 1.2.3.4
+XFF_REGEX = re.compile(r"(?:xForwardedFor|X-Forwarded-For|xff):\s*(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})")
+# Alternative regex for when Xray logs real IP in different format
+# Some Xray configs show: from 1.2.3.4 (via CDN)
+XRAY_REAL_IP_REGEX = re.compile(r"from\s+(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})\s+\(via")
 
 # Global storage for current node information (will be set by the calling function)
 CURRENT_NODE_INFO = {"node_id": None, "node_name": None}
+
+# Global CDN configuration (loaded from config)
+CDN_CONFIG = {
+    "cdn_inbounds": [],  # List of inbound names that use CDN
+    "cdn_provider": "cloudflare",  # CDN provider type
+    "use_xff": True  # Whether to extract real IP from X-Forwarded-For
+}
 
 
 async def set_current_node_info(node_id: int, node_name: str) -> None:
@@ -124,6 +140,21 @@ async def set_current_node_info(node_id: int, node_name: str) -> None:
     """
     global CURRENT_NODE_INFO
     CURRENT_NODE_INFO = {"node_id": node_id, "node_name": node_name}
+
+
+async def update_cdn_config() -> None:
+    """
+    Update the CDN configuration from the config file.
+    Should be called periodically to refresh CDN settings.
+    """
+    global CDN_CONFIG
+    try:
+        data = await read_config()
+        CDN_CONFIG["cdn_inbounds"] = data.get("cdn_inbounds", [])
+        CDN_CONFIG["cdn_provider"] = data.get("cdn_provider", "cloudflare")
+        CDN_CONFIG["use_xff"] = data.get("cdn_use_xff", True)
+    except Exception:
+        pass  # Keep existing config on error
 
 
 async def update_user_device_info_with_node(user: UserType, ip: str, inbound_protocol: str, node_id: int, node_name: str) -> None:
@@ -213,6 +244,11 @@ async def parse_logs(log: str, node_id: int = None, node_name: str = None) -> di
     data = await read_config()
     if data.get("INVALID_IPS"):
         INVALID_IPS.update(data.get("INVALID_IPS"))
+    
+    # Update CDN config from settings
+    cdn_inbounds = data.get("cdn_inbounds", [])
+    use_xff = data.get("cdn_use_xff", True)
+    
     lines = log.splitlines()
     for line in lines:
         if "accepted" not in line:
@@ -220,11 +256,16 @@ async def parse_logs(log: str, node_id: int = None, node_name: str = None) -> di
         if "BLOCK]" in line:
             continue
         
+        # Extract inbound protocol first (needed for CDN check)
+        inbound_match = INBOUND_REGEX.search(line)
+        inbound_protocol = "Unknown"
+        if inbound_match:
+            inbound_protocol = inbound_match.group(1).strip()
+        
         # Extract IP address
         ip_v6_match = IP_V6_REGEX.search(line)
         ip_v4_match = IP_V4_REGEX.search(line)
         email_match = EMAIL_REGEX.search(line)
-        inbound_match = INBOUND_REGEX.search(line)
         
         if ip_v6_match:
             ip = ip_v6_match.group(1)
@@ -233,10 +274,20 @@ async def parse_logs(log: str, node_id: int = None, node_name: str = None) -> di
         else:
             continue
         
-        # Extract inbound protocol
-        inbound_protocol = "Unknown"
-        if inbound_match:
-            inbound_protocol = inbound_match.group(1).strip()
+        # Check if this inbound is a CDN inbound - if so, try to get real IP from X-Forwarded-For
+        is_cdn_inbound = inbound_protocol in cdn_inbounds
+        if is_cdn_inbound and use_xff:
+            # Try to extract real IP from X-Forwarded-For header
+            xff_match = XFF_REGEX.search(line)
+            if xff_match:
+                real_ip = xff_match.group(1)
+                # Use the real IP from X-Forwarded-For instead of CDN edge IP
+                ip = real_ip
+            else:
+                # Try alternative Xray real IP format
+                real_ip_match = XRAY_REAL_IP_REGEX.search(line)
+                if real_ip_match:
+                    ip = real_ip_match.group(1)
         
         # Get IP location from config (new format)
         ip_location = data.get("monitoring", {}).get("ip_location", "IR")

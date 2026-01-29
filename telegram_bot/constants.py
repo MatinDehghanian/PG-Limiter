@@ -164,6 +164,9 @@ class CallbackData:
     CDN_MODE_REMOVE = "cdn_mode_remove"
     CDN_MODE_LIST = "cdn_mode_list"
     CDN_MODE_CLEAR = "cdn_mode_clear"
+    CDN_PROVIDER_MENU = "cdn_provider_menu"
+    CDN_PROVIDER_CLOUDFLARE = "cdn_provider_cloudflare"
+    CDN_USE_XFF_TOGGLE = "cdn_use_xff_toggle"
     
     # Node settings
     NODE_SETTINGS_MENU = "node_settings_menu"

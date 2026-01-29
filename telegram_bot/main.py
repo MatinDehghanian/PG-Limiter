@@ -849,6 +849,21 @@ async def callback_query_handler(update: Update, context: ContextTypes.DEFAULT_T
         await cdn_mode_clear_callback(query, context)
         return
     
+    if data == CallbackData.CDN_USE_XFF_TOGGLE:
+        from telegram_bot.handlers.settings import cdn_use_xff_toggle_callback
+        await cdn_use_xff_toggle_callback(query, context)
+        return
+    
+    if data == CallbackData.CDN_PROVIDER_MENU:
+        from telegram_bot.handlers.settings import cdn_provider_menu_callback
+        await cdn_provider_menu_callback(query, context)
+        return
+    
+    if data == CallbackData.CDN_PROVIDER_CLOUDFLARE:
+        from telegram_bot.handlers.settings import cdn_provider_cloudflare_callback
+        await cdn_provider_cloudflare_callback(query, context)
+        return
+    
     # Handle CDN remove inbound callbacks
     if data.startswith("cdn_remove_"):
         from telegram_bot.handlers.settings import cdn_mode_remove_inbound_callback
