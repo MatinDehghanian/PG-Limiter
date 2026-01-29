@@ -353,16 +353,11 @@ async def check_user_exists(panel_data: PanelType, username: str) -> bool:
     max_attempts = 3
     for attempt in range(max_attempts):
         force_refresh = attempt > 0
-        get_panel_token = await get_token(panel_data, force_refresh=force_refresh)
-        if isinstance(get_panel_token, ValueError):
-            users_logger.error(f"Failed to get token while checking user {username}")
-            return False
-        token = get_panel_token.panel_token
         
-        response, error = await panel_get(
+        response = await panel_get(
             panel_data,
             f"/api/user/{username}",
-            token,
+            force_refresh=force_refresh,
             timeout=10.0,
             max_retries=2
         )
@@ -379,8 +374,7 @@ async def check_user_exists(panel_data: PanelType, username: str) -> bool:
                 users_logger.warning("Got 401 error, invalidating token cache and retrying")
                 continue
         
-        if error:
-            users_logger.warning(f"Attempt {attempt + 1}/{max_attempts} failed: {error}")
+        users_logger.warning(f"Attempt {attempt + 1}/{max_attempts} failed")
         
         if attempt < max_attempts - 1:
             wait_time = min(10, random.randint(1, 3) * (attempt + 1))
@@ -412,15 +406,11 @@ async def get_user_details(panel_data: PanelType, username: str) -> dict | Value
     
     for attempt in range(max_attempts):
         force_refresh = attempt > 0
-        get_panel_token = await get_token(panel_data, force_refresh=force_refresh)
-        if isinstance(get_panel_token, ValueError):
-            raise get_panel_token
-        token = get_panel_token.panel_token
         
-        response, error = await panel_get(
+        response = await panel_get(
             panel_data, 
-            f"/api/user/{username}", 
-            token,
+            f"/api/user/{username}",
+            force_refresh=force_refresh,
             timeout=10.0,
             max_retries=2
         )
@@ -441,8 +431,7 @@ async def get_user_details(panel_data: PanelType, username: str) -> dict | Value
                 users_logger.warning("Got 401 error, invalidating token cache and retrying")
                 continue
         
-        if error:
-            users_logger.warning(f"Attempt {attempt + 1}/{max_attempts} failed: {error}")
+        users_logger.warning(f"Attempt {attempt + 1}/{max_attempts} failed")
         
         if attempt < max_attempts - 1:
             wait_time = min(10, random.randint(1, 3) * (attempt + 1))
@@ -503,17 +492,13 @@ async def update_user_groups(panel_data: PanelType, username: str, group_ids: li
     
     for attempt in range(max_attempts):
         force_refresh = attempt > 0
-        get_panel_token = await get_token(panel_data, force_refresh=force_refresh)
-        if isinstance(get_panel_token, ValueError):
-            raise get_panel_token
-        token = get_panel_token.panel_token
         payload = {"group_ids": group_ids}
         
-        response, error = await panel_put(
+        response = await panel_put(
             panel_data,
             f"/api/user/{username}",
-            token,
             json_data=payload,
+            force_refresh=force_refresh,
             timeout=15.0,
             max_retries=2
         )
@@ -531,8 +516,7 @@ async def update_user_groups(panel_data: PanelType, username: str, group_ids: li
                 users_logger.warning(f"User {username} not found")
                 return False
         
-        if error:
-            users_logger.warning(f"Attempt {attempt + 1}/{max_attempts} failed: {error}")
+        users_logger.warning(f"Attempt {attempt + 1}/{max_attempts} failed")
         
         if attempt < max_attempts - 1:
             wait_time = min(10, random.randint(1, 3) * (attempt + 1))
@@ -632,17 +616,13 @@ async def enable_user_by_status(panel_data: PanelType, username: str) -> bool:
     
     for attempt in range(max_attempts):
         force_refresh = attempt > 0
-        get_panel_token = await get_token(panel_data, force_refresh=force_refresh)
-        if isinstance(get_panel_token, ValueError):
-            raise get_panel_token
-        token = get_panel_token.panel_token
         status = {"status": "active"}
         
-        response, error = await panel_put(
+        response = await panel_put(
             panel_data,
             f"/api/user/{username}",
-            token,
             json_data=status,
+            force_refresh=force_refresh,
             timeout=10.0,
             max_retries=2
         )
@@ -660,8 +640,7 @@ async def enable_user_by_status(panel_data: PanelType, username: str) -> bool:
                 users_logger.warning(f"User {username} not found")
                 return False
         
-        if error:
-            users_logger.warning(f"Attempt {attempt + 1}/{max_attempts} failed: {error}")
+        users_logger.warning(f"Attempt {attempt + 1}/{max_attempts} failed")
         
         if attempt < max_attempts - 1:
             wait_time = min(10, random.randint(1, 3) * (attempt + 1))
@@ -916,17 +895,13 @@ async def disable_user_by_status(panel_data: PanelType, username: str) -> bool:
     
     for attempt in range(max_attempts):
         force_refresh = attempt > 0
-        get_panel_token = await get_token(panel_data, force_refresh=force_refresh)
-        if isinstance(get_panel_token, ValueError):
-            raise get_panel_token
-        token = get_panel_token.panel_token
         status = {"status": "disabled"}
         
-        response, error = await panel_put(
+        response = await panel_put(
             panel_data,
             f"/api/user/{username}",
-            token,
             json_data=status,
+            force_refresh=force_refresh,
             timeout=10.0,
             max_retries=2
         )
@@ -944,8 +919,7 @@ async def disable_user_by_status(panel_data: PanelType, username: str) -> bool:
                 users_logger.warning(f"User {username} not found")
                 return False
         
-        if error:
-            users_logger.warning(f"Attempt {attempt + 1}/{max_attempts} failed: {error}")
+        users_logger.warning(f"Attempt {attempt + 1}/{max_attempts} failed")
         
         if attempt < max_attempts - 1:
             wait_time = min(10, random.randint(1, 3) * (attempt + 1))

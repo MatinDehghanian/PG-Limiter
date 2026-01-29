@@ -452,6 +452,128 @@ async def get_user_from_cache(username: str) -> Optional[dict]:
         return None
 
 
+async def fetch_and_sync_single_user(username: str, panel_data: Optional[PanelType] = None) -> Optional[dict]:
+    """
+    Fetch a single user from the panel API and sync to local database.
+    This is useful when a new user appears in active connections before the regular sync.
+    
+    Args:
+        username: The username to fetch
+        panel_data: Panel connection data (will be fetched from config if not provided)
+        
+    Returns:
+        User dict if found and synced, None otherwise
+    """
+    try:
+        sync_logger.info(f"🔄 Fetching single user from panel: {username}")
+        
+        # Get panel_data from config if not provided
+        if panel_data is None:
+            from utils.read_config import read_config
+            config = await read_config()
+            panel_data = PanelType(
+                panel_username=config.get("panel_username", ""),
+                panel_password=config.get("panel_password", ""),
+                panel_domain=config.get("panel_domain", ""),
+            )
+        
+        # Fetch user details from panel
+        from utils.panel_api import get_user_details
+        user_data = await get_user_details(panel_data, username)
+        
+        if user_data is None:
+            sync_logger.warning(f"⚠️ User {username} not found in panel")
+            return None
+        
+        if isinstance(user_data, ValueError):
+            sync_logger.error(f"❌ Error fetching user {username}: {user_data}")
+            return None
+        
+        # Extract user details (same logic as sync_users_to_database)
+        status = user_data.get("status", "active")
+        
+        # Get admin/owner info
+        admin_info = user_data.get("admin", {}) or {}
+        owner_id = admin_info.get("id") if isinstance(admin_info, dict) else None
+        owner_username = admin_info.get("username") if isinstance(admin_info, dict) else None
+        
+        # Alternative: check for "created_by" field
+        if not owner_username:
+            owner_username = user_data.get("created_by")
+        
+        # Get group IDs
+        group_ids = user_data.get("group_ids") or user_data.get("groups") or []
+        if isinstance(group_ids, str):
+            group_ids = [int(g.strip()) for g in group_ids.split(",") if g.strip()]
+        
+        # Get data limits
+        data_limit = user_data.get("data_limit")
+        if data_limit:
+            data_limit = data_limit / (1024 ** 3)  # Convert to GB
+        
+        used_traffic = user_data.get("used_traffic", 0)
+        if used_traffic:
+            used_traffic = used_traffic / (1024 ** 3)  # Convert to GB
+        
+        # Get expiry
+        expire_at = None
+        expire_value = user_data.get("expire")
+        if expire_value:
+            if isinstance(expire_value, int):
+                # Unix timestamp
+                if expire_value > 0:
+                    expire_at = datetime.fromtimestamp(expire_value)
+            elif isinstance(expire_value, str):
+                # ISO datetime string
+                try:
+                    expire_at = datetime.fromisoformat(
+                        expire_value.replace("Z", "+00:00")
+                    )
+                except ValueError:
+                    pass
+        
+        # Get note
+        note = user_data.get("note")
+        
+        # Save to database
+        from db.database import get_db
+        from db.crud.users import UserCRUD
+        
+        async with get_db() as db:
+            user = await UserCRUD.create_or_update(
+                db,
+                username=username,
+                status=status,
+                owner_id=owner_id,
+                owner_username=owner_username,
+                group_ids=group_ids,
+                data_limit=data_limit,
+                used_traffic=used_traffic,
+                expire_at=expire_at,
+                note=note,
+            )
+            await db.commit()
+            
+            sync_logger.info(f"✅ User {username} synced from panel to database")
+            
+            return {
+                "username": user.username,
+                "status": user.status,
+                "owner_id": user.owner_id,
+                "owner_username": user.owner_username,
+                "group_ids": user.group_ids or [],
+                "data_limit": user.data_limit,
+                "used_traffic": user.used_traffic,
+                "expire_at": user.expire_at,
+            }
+            
+    except Exception as e:
+        sync_logger.error(f"❌ Error fetching/syncing user {username}: {e}")
+        import traceback
+        sync_logger.error(f"Traceback: {traceback.format_exc()}")
+        return None
+
+
 async def get_last_sync_time() -> Optional[datetime]:
     """Get the last sync timestamp."""
     return _last_sync_time

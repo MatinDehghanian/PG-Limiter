@@ -1,6 +1,6 @@
 #!/bin/bash
 
-VERSION="0.8.3"
+VERSION="0.8.4"
 
 # Colors for output
 RED='\033[0;31m'

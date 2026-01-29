@@ -170,15 +170,42 @@ class UserCRUD:
         excepted: bool = True,
         reason: Optional[str] = None,
         excepted_by: Optional[str] = None,
+        fetch_from_panel: bool = True,
     ) -> Optional[User]:
-        """Set user exception status."""
+        """
+        Set user exception status.
+        
+        Args:
+            db: Database session
+            username: The username to set exception for
+            excepted: Whether to add or remove from exception list
+            reason: Reason for exception
+            excepted_by: Who set the exception
+            fetch_from_panel: If True, fetch user from panel if not in local DB
+        """
         db_users_logger.debug(f"📝 Setting exception for {username}: {excepted}")
         result = await db.execute(select(User).where(User.username == username))
         user = result.scalar_one_or_none()
         
         if not user:
-            db_users_logger.warning(f"⚠️ User {username} not found for exception")
-            return None
+            if fetch_from_panel:
+                # User not in local DB - try fetching from panel
+                db_users_logger.info(f"🔄 User {username} not in DB, fetching from panel...")
+                try:
+                    from utils.user_sync import fetch_and_sync_single_user
+                    fetched = await fetch_and_sync_single_user(username)
+                    if fetched:
+                        # Re-query for the user after sync
+                        result = await db.execute(select(User).where(User.username == username))
+                        user = result.scalar_one_or_none()
+                        if user:
+                            db_users_logger.info(f"✅ User {username} fetched from panel and added to DB")
+                except Exception as e:
+                    db_users_logger.error(f"❌ Failed to fetch user {username} from panel: {e}")
+            
+            if not user:
+                db_users_logger.warning(f"⚠️ User {username} not found for exception")
+                return None
         
         user.is_excepted = excepted
         user.exception_reason = reason if excepted else None
@@ -219,15 +246,44 @@ class UserCRUD:
     # ==================== Special Limit Methods ====================
     
     @staticmethod
-    async def set_special_limit(db: AsyncSession, username: str, limit: Optional[int]) -> Optional[User]:
-        """Set or remove special limit for a user. Pass None to remove."""
+    async def set_special_limit(
+        db: AsyncSession, 
+        username: str, 
+        limit: Optional[int],
+        fetch_from_panel: bool = True
+    ) -> Optional[User]:
+        """
+        Set or remove special limit for a user. Pass None to remove.
+        
+        Args:
+            db: Database session
+            username: The username to set limit for
+            limit: The limit value, or None to remove
+            fetch_from_panel: If True, fetch user from panel if not in local DB
+        """
         db_users_logger.debug(f"📝 Setting special limit for {username}: {limit}")
         result = await db.execute(select(User).where(User.username == username))
         user = result.scalar_one_or_none()
         
         if not user:
-            db_users_logger.warning(f"⚠️ User {username} not found for limit")
-            return None
+            if fetch_from_panel:
+                # User not in local DB - try fetching from panel
+                db_users_logger.info(f"🔄 User {username} not in DB, fetching from panel...")
+                try:
+                    from utils.user_sync import fetch_and_sync_single_user
+                    fetched = await fetch_and_sync_single_user(username)
+                    if fetched:
+                        # Re-query for the user after sync
+                        result = await db.execute(select(User).where(User.username == username))
+                        user = result.scalar_one_or_none()
+                        if user:
+                            db_users_logger.info(f"✅ User {username} fetched from panel and added to DB")
+                except Exception as e:
+                    db_users_logger.error(f"❌ Failed to fetch user {username} from panel: {e}")
+            
+            if not user:
+                db_users_logger.warning(f"⚠️ User {username} not found for limit")
+                return None
         
         user.special_limit = limit
         user.special_limit_updated_at = datetime.utcnow() if limit is not None else None
@@ -282,15 +338,45 @@ class UserCRUD:
         original_groups: Optional[List[int]] = None,
         reason: Optional[str] = None,
         punishment_step: int = 0,
+        fetch_from_panel: bool = True,
     ) -> Optional[User]:
-        """Set user disable status by limiter."""
+        """
+        Set user disable status by limiter.
+        
+        Args:
+            db: Database session
+            username: The username to set disable status for
+            disabled: Whether to disable or enable
+            disabled_at: Timestamp when disabled
+            enable_at: Timestamp when to enable
+            original_groups: Original group IDs before disable
+            reason: Reason for disable
+            punishment_step: Current punishment step
+            fetch_from_panel: If True, fetch user from panel if not in local DB
+        """
         db_users_logger.debug(f"📝 Setting disabled for {username}: {disabled}")
         result = await db.execute(select(User).where(User.username == username))
         user = result.scalar_one_or_none()
         
         if not user:
-            db_users_logger.warning(f"⚠️ User {username} not found for disable")
-            return None
+            if fetch_from_panel:
+                # User not in local DB - try fetching from panel
+                db_users_logger.info(f"🔄 User {username} not in DB, fetching from panel...")
+                try:
+                    from utils.user_sync import fetch_and_sync_single_user
+                    fetched = await fetch_and_sync_single_user(username)
+                    if fetched:
+                        # Re-query for the user after sync
+                        result = await db.execute(select(User).where(User.username == username))
+                        user = result.scalar_one_or_none()
+                        if user:
+                            db_users_logger.info(f"✅ User {username} fetched from panel and added to DB")
+                except Exception as e:
+                    db_users_logger.error(f"❌ Failed to fetch user {username} from panel: {e}")
+            
+            if not user:
+                db_users_logger.warning(f"⚠️ User {username} not found for disable")
+                return None
         
         if disabled:
             if disabled_at is None:
