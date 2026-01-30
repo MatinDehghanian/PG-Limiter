@@ -228,24 +228,31 @@ else:
 
 async def start(update: Update, _context: ContextTypes.DEFAULT_TYPE):
     """Handle the /start command."""
-    bot_logger.info(f"📩 Received /start from chat_id={update.effective_chat.id}")
+    user_id = update.effective_user.id if update.effective_user else None
+    bot_logger.info(f"📩 Received /start from user_id={user_id}")
+    
+    if not user_id:
+        await update.message.reply_html(
+            text="Sorry, you do not have permission to use this bot."
+        )
+        return
     
     admins = await check_admin()
     bot_logger.debug(f"Admin list: {admins}")
     
     if not admins:
         bot_logger.info("No admins configured, adding first user as admin")
-        await add_admin_to_config(update.effective_chat.id)
+        await add_admin_to_config(user_id)
     admins = await check_admin()
     
-    if update.effective_chat.id not in admins:
-        bot_logger.warning(f"Unauthorized access attempt from chat_id={update.effective_chat.id}")
+    if user_id not in admins:
+        bot_logger.warning(f"Unauthorized access attempt from user_id={user_id}")
         await update.message.reply_html(
             text="Sorry, you do not have permission to use this bot."
         )
         return
     
-    bot_logger.info(f"Sending main menu to chat_id={update.effective_chat.id}")
+    bot_logger.info(f"Sending main menu to user_id={user_id}")
     await update.message.reply_html(
         text=START_MESSAGE,
         reply_markup=create_main_menu_keyboard()
@@ -281,9 +288,10 @@ async def callback_query_handler(update: Update, context: ContextTypes.DEFAULT_T
     
     data = query.data
     
-    # Admin check
+    # Admin check - use effective_user.id for group compatibility
+    user_id = update.effective_user.id if update.effective_user else None
     admins = await check_admin()
-    if update.effective_chat.id not in admins:
+    if not user_id or user_id not in admins:
         await query.edit_message_text(
             text="Sorry, you do not have permission to use this bot."
         )
