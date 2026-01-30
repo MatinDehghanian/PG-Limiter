@@ -31,15 +31,24 @@ async def _send_response(update: Update, text: str, reply_markup=None):
 async def check_admin_privilege(update: Update):
     """
     Checks if the user has admin privileges.
+    Uses effective_user.id to work correctly in groups.
     """
-    admins = await check_admin()
-    if not admins:
-        await add_admin_to_config(update.effective_chat.id)
-    admins = await check_admin()
-    if update.effective_chat.id not in admins:
+    user_id = update.effective_user.id if update.effective_user else None
+    if not user_id:
         await _send_response(
             update,
-            "Sorry, you do not have permission to execute this command."
+            "Sorry, you do not have permission to use this bot."
+        )
+        return ConversationHandler.END
+    
+    admins = await check_admin()
+    if not admins:
+        await add_admin_to_config(user_id)
+    admins = await check_admin()
+    if user_id not in admins:
+        await _send_response(
+            update,
+            "Sorry, you do not have permission to use this bot."
         )
         return ConversationHandler.END
 

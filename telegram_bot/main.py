@@ -683,6 +683,42 @@ async def callback_query_handler(update: Update, context: ContextTypes.DEFAULT_T
         await handle_topics_clear_cache_callback(query, context)
         return
     
+    # Auto-backup settings callbacks
+    if data == CallbackData.AUTO_BACKUP_MENU or data == "auto_backup_menu":
+        from telegram_bot.handlers.backup import auto_backup_menu
+        await auto_backup_menu(update, context)
+        return
+    
+    if data == CallbackData.AUTO_BACKUP_TOGGLE or data == "auto_backup_toggle":
+        from telegram_bot.handlers.backup import auto_backup_toggle
+        await auto_backup_toggle(update, context)
+        return
+    
+    if data == CallbackData.AUTO_BACKUP_INTERVAL_1H or data == "auto_backup_interval_1h":
+        from telegram_bot.handlers.backup import handle_auto_backup_interval_1h
+        await handle_auto_backup_interval_1h(update, context)
+        return
+    
+    if data == CallbackData.AUTO_BACKUP_INTERVAL_3H or data == "auto_backup_interval_3h":
+        from telegram_bot.handlers.backup import handle_auto_backup_interval_3h
+        await handle_auto_backup_interval_3h(update, context)
+        return
+    
+    if data == CallbackData.AUTO_BACKUP_INTERVAL_6H or data == "auto_backup_interval_6h":
+        from telegram_bot.handlers.backup import handle_auto_backup_interval_6h
+        await handle_auto_backup_interval_6h(update, context)
+        return
+    
+    if data == CallbackData.AUTO_BACKUP_INTERVAL_12H or data == "auto_backup_interval_12h":
+        from telegram_bot.handlers.backup import handle_auto_backup_interval_12h
+        await handle_auto_backup_interval_12h(update, context)
+        return
+    
+    if data == CallbackData.AUTO_BACKUP_NOW or data == "auto_backup_now":
+        from telegram_bot.handlers.backup import auto_backup_now
+        await auto_backup_now(update, context)
+        return
+    
     # Back to settings callback
     if data == CallbackData.BACK_SETTINGS:
         await query.edit_message_text(

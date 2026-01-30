@@ -53,7 +53,10 @@ def create_settings_menu_keyboard():
             InlineKeyboardButton("🖥️ Node Settings", callback_data=CallbackData.NODE_SETTINGS_MENU),
         ],
         [
-            InlineKeyboardButton("🔙 Back", callback_data=CallbackData.BACK_MAIN),
+            InlineKeyboardButton("� Auto-Backup", callback_data=CallbackData.AUTO_BACKUP_MENU),
+        ],
+        [
+            InlineKeyboardButton("�🔙 Back", callback_data=CallbackData.BACK_MAIN),
         ],
     ]
     return InlineKeyboardMarkup(keyboard)

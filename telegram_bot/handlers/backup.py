@@ -688,3 +688,217 @@ Type: Automatic (scheduled every 6 hours)
         
     except Exception as e:
         backup_logger.error(f"❌ Automatic backup failed: {e}")
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# AUTO-BACKUP SETTINGS
+# ═══════════════════════════════════════════════════════════════════════════════
+
+AUTO_BACKUP_CONFIG_FILE = "data/auto_backup_config.json"
+
+# Default config: enabled with 1 hour interval
+DEFAULT_AUTO_BACKUP_CONFIG = {
+    "enabled": True,
+    "interval_hours": 1
+}
+
+
+def get_auto_backup_config() -> dict:
+    """Get the current auto-backup configuration."""
+    if os.path.exists(AUTO_BACKUP_CONFIG_FILE):
+        try:
+            with open(AUTO_BACKUP_CONFIG_FILE, 'r', encoding='utf-8') as f:
+                return json.load(f)
+        except Exception as e:
+            backup_logger.error(f"Error reading auto-backup config: {e}")
+    return DEFAULT_AUTO_BACKUP_CONFIG.copy()
+
+
+def save_auto_backup_config(config: dict):
+    """Save the auto-backup configuration."""
+    os.makedirs(os.path.dirname(AUTO_BACKUP_CONFIG_FILE), exist_ok=True)
+    with open(AUTO_BACKUP_CONFIG_FILE, 'w', encoding='utf-8') as f:
+        json.dump(config, f, indent=2)
+
+
+def create_auto_backup_keyboard(config: dict) -> InlineKeyboardMarkup:
+    """Create the auto-backup settings menu keyboard."""
+    enabled = config.get("enabled", True)
+    interval = config.get("interval_hours", 1)
+    
+    toggle_text = "🔴 Disable Auto-Backup" if enabled else "🟢 Enable Auto-Backup"
+    
+    keyboard = [
+        [InlineKeyboardButton(toggle_text, callback_data="auto_backup_toggle")],
+    ]
+    
+    if enabled:
+        # Interval options with checkmarks
+        intervals = [
+            (1, "1h", "auto_backup_interval_1h"),
+            (3, "3h", "auto_backup_interval_3h"),
+            (6, "6h", "auto_backup_interval_6h"),
+            (12, "12h", "auto_backup_interval_12h"),
+        ]
+        
+        interval_buttons = []
+        for hours, label, callback in intervals:
+            check = "✅ " if interval == hours else ""
+            interval_buttons.append(
+                InlineKeyboardButton(f"{check}{label}", callback_data=callback)
+            )
+        
+        # Split into rows of 2
+        keyboard.append(interval_buttons[:2])
+        keyboard.append(interval_buttons[2:])
+        
+        # Backup now button
+        keyboard.append([
+            InlineKeyboardButton("📦 Backup Now", callback_data="auto_backup_now")
+        ])
+    
+    keyboard.append([
+        InlineKeyboardButton("« Back to Settings", callback_data="settings_menu")
+    ])
+    
+    return InlineKeyboardMarkup(keyboard)
+
+
+async def auto_backup_menu(update: Update, _context: ContextTypes.DEFAULT_TYPE):
+    """Show the auto-backup settings menu."""
+    check = await check_admin_privilege(update)
+    if check is not None:
+        return check
+    
+    config = get_auto_backup_config()
+    enabled = config.get("enabled", True)
+    interval = config.get("interval_hours", 1)
+    
+    status_icon = "✅" if enabled else "❌"
+    status_text = "Enabled" if enabled else "Disabled"
+    
+    message = (
+        f"💾 <b>Auto-Backup Settings</b>\n\n"
+        f"Status: {status_icon} <code>{status_text}</code>\n"
+        f"Interval: <code>{interval} hour(s)</code>\n\n"
+        f"💡 <i>Automatic backups are sent to all admins\n"
+        f"containing config, database, and legacy files.</i>"
+    )
+    
+    if update.callback_query:
+        await update.callback_query.answer()
+        await update.callback_query.edit_message_text(
+            text=message,
+            parse_mode="HTML",
+            reply_markup=create_auto_backup_keyboard(config)
+        )
+    else:
+        await update.message.reply_html(
+            text=message,
+            reply_markup=create_auto_backup_keyboard(config)
+        )
+    
+    return ConversationHandler.END
+
+
+async def auto_backup_toggle(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Toggle auto-backup on/off."""
+    check = await check_admin_privilege(update)
+    if check is not None:
+        return check
+    
+    config = get_auto_backup_config()
+    config["enabled"] = not config.get("enabled", True)
+    save_auto_backup_config(config)
+    
+    # Reschedule the job
+    await reschedule_auto_backup(context.application)
+    
+    return await auto_backup_menu(update, context)
+
+
+async def auto_backup_set_interval(update: Update, context: ContextTypes.DEFAULT_TYPE, hours: int):
+    """Set the auto-backup interval."""
+    check = await check_admin_privilege(update)
+    if check is not None:
+        return check
+    
+    config = get_auto_backup_config()
+    config["interval_hours"] = hours
+    save_auto_backup_config(config)
+    
+    # Reschedule the job
+    await reschedule_auto_backup(context.application)
+    
+    if update.callback_query:
+        await update.callback_query.answer(f"✅ Interval set to {hours} hour(s)")
+    
+    return await auto_backup_menu(update, context)
+
+
+async def auto_backup_now(update: Update, _context: ContextTypes.DEFAULT_TYPE):
+    """Trigger an immediate backup."""
+    check = await check_admin_privilege(update)
+    if check is not None:
+        return check
+    
+    if update.callback_query:
+        await update.callback_query.answer("📦 Creating backup...")
+    
+    # Run the backup
+    await send_automatic_backup()
+    
+    if update.callback_query:
+        await update.callback_query.edit_message_text(
+            text="✅ <b>Backup sent successfully!</b>\n\n"
+                 "The backup has been sent to all admins.",
+            parse_mode="HTML",
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton("« Back", callback_data="auto_backup_menu")]
+            ])
+        )
+    
+    return ConversationHandler.END
+
+
+async def reschedule_auto_backup(application):
+    """Reschedule the auto-backup job based on current config."""
+    job_queue = application.job_queue
+    if not job_queue:
+        backup_logger.warning("Job queue not available")
+        return
+    
+    # Remove existing job
+    current_jobs = job_queue.get_jobs_by_name("automatic_backup")
+    for job in current_jobs:
+        job.schedule_removal()
+    
+    config = get_auto_backup_config()
+    if not config.get("enabled", True):
+        backup_logger.info("Auto-backup disabled, job removed")
+        return
+    
+    interval_hours = config.get("interval_hours", 1)
+    interval_seconds = interval_hours * 3600
+    
+    job_queue.run_repeating(
+        lambda context: send_automatic_backup(),
+        interval=interval_seconds,
+        first=interval_seconds,
+        name="automatic_backup"
+    )
+    backup_logger.info(f"✓ Auto-backup scheduled (every {interval_hours} hour(s))")
+
+
+# Callback handlers for interval settings
+async def handle_auto_backup_interval_1h(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    return await auto_backup_set_interval(update, context, 1)
+
+async def handle_auto_backup_interval_3h(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    return await auto_backup_set_interval(update, context, 3)
+
+async def handle_auto_backup_interval_6h(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    return await auto_backup_set_interval(update, context, 6)
+
+async def handle_auto_backup_interval_12h(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    return await auto_backup_set_interval(update, context, 12)

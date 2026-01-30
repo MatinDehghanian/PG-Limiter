@@ -199,6 +199,15 @@ class CallbackData:
     # Cleanup
     CLEANUP_DELETED_USERS = "cleanup_deleted_users"
     
+    # Auto-backup settings
+    AUTO_BACKUP_MENU = "auto_backup_menu"
+    AUTO_BACKUP_TOGGLE = "auto_backup_toggle"
+    AUTO_BACKUP_INTERVAL_1H = "auto_backup_interval_1h"
+    AUTO_BACKUP_INTERVAL_3H = "auto_backup_interval_3h"
+    AUTO_BACKUP_INTERVAL_6H = "auto_backup_interval_6h"
+    AUTO_BACKUP_INTERVAL_12H = "auto_backup_interval_12h"
+    AUTO_BACKUP_NOW = "auto_backup_now"
+    
     # Back buttons
     BACK_MAIN = "back_main"
     BACK_SETTINGS = "back_settings"
