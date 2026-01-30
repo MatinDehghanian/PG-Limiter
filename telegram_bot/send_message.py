@@ -1,23 +1,27 @@
 """
 Send logs to telegram bot with topic support.
+Messages can be sent to:
+1. Forum group topics (if topics are enabled and configured)
+2. Admin private chats (fallback)
 """
 
 from utils.logs import get_logger
 from telegram_bot.utils import check_admin
-from telegram_bot.topics import TopicType, get_topics_manager
+from telegram_bot.topics import TopicType, get_topics_manager, send_to_topic
 
 tg_send_logger = get_logger("telegram.send")
 
 
-async def send_logs(msg, return_message_id=False, reply_markup=None, topic_type: TopicType = TopicType.GENERAL):
+async def send_logs(msg, return_message_id=False, reply_markup=None, topic_type: TopicType = TopicType.GENERAL, message_key: str = None):
     """
-    Send logs to all admins.
+    Send logs to forum group topic or all admins.
     
     Args:
         msg: The message to send
-        return_message_id: If True, returns the message_id of the first admin's message
+        return_message_id: If True, returns the message_id of the first message
         reply_markup: Optional InlineKeyboardMarkup for buttons
         topic_type: Topic type to send to (default: GENERAL)
+        message_key: Optional key for deduplication (if provided, message won't be sent if already sent with same key)
         
     Returns:
         If return_message_id is True, returns (message_id, chat_id) tuple or None
@@ -26,29 +30,64 @@ async def send_logs(msg, return_message_id=False, reply_markup=None, topic_type:
     # Import application here to get the updated instance
     from telegram_bot.main import application
     
-    admins = await check_admin()
+    topics_manager = get_topics_manager()
     retries = 2
     first_message_info = None
-    topics_manager = get_topics_manager()
     
-    tg_send_logger.debug(f"📤 Sending log to {len(admins)} admins ({len(msg)} chars) topic={topic_type.value}")
+    tg_send_logger.debug(f"📤 Sending log ({len(msg)} chars) topic={topic_type.value}")
+    
+    # Try sending to forum group first if topics are enabled
+    if topics_manager.enabled and topics_manager.group_id:
+        # Check for duplicate if message_key provided
+        if message_key and topics_manager.is_message_sent(topic_type, message_key):
+            tg_send_logger.debug(f"⏭️ Skipping duplicate message: {message_key[:50]}...")
+            return None
+        
+        thread_id = topics_manager.get_topic_id(topic_type)
+        
+        for attempt in range(retries):
+            try:
+                sent_message = await application.bot.sendMessage(
+                    chat_id=topics_manager.group_id,
+                    text=msg,
+                    parse_mode="HTML",
+                    reply_markup=reply_markup,
+                    message_thread_id=thread_id
+                )
+                
+                # Mark message as sent if key provided
+                if message_key:
+                    await topics_manager.mark_message_sent(topic_type, message_key)
+                
+                if return_message_id:
+                    first_message_info = (sent_message.message_id, topics_manager.group_id)
+                
+                tg_send_logger.debug(f"✅ Message sent to forum group (thread={thread_id})")
+                
+                if return_message_id:
+                    return first_message_info
+                return None
+                
+            except Exception as e:
+                tg_send_logger.warning(f"⚠️ Attempt {attempt + 1}/{retries} failed for forum group: {e}")
+    
+    # Fallback: send to admins
+    admins = await check_admin()
     
     if admins:
         for admin in admins:
-            thread_id = topics_manager.get_topic_id(admin, topic_type)
             for attempt in range(retries):
                 try:
                     sent_message = await application.bot.sendMessage(
                         chat_id=admin, text=msg, parse_mode="HTML",
-                        reply_markup=reply_markup,
-                        message_thread_id=thread_id
+                        reply_markup=reply_markup
                     )
                     # Store the first successful message info for editing later
                     if first_message_info is None and return_message_id:
                         first_message_info = (sent_message.message_id, admin)
-                    tg_send_logger.debug(f"✅ Message sent to admin {admin} (thread={thread_id})")
+                    tg_send_logger.debug(f"✅ Message sent to admin {admin}")
                     break
-                except Exception as e:  # pylint: disable=broad-except
+                except Exception as e:
                     tg_send_logger.warning(f"⚠️ Attempt {attempt + 1}/{retries} failed for admin {admin}: {e}")
     else:
         tg_send_logger.warning("⚠️ No admins found to send message")
@@ -141,6 +180,8 @@ async def send_user_message(msg: str, username: str, device_count: int, has_spec
     Only shows buttons if user doesn't have special limit and is not in except list.
     Sends to NO_LIMIT topic since this is for users without special limits.
     
+    Uses deduplication to avoid sending duplicate messages for the same user.
+    
     Args:
         msg: The message text to send
         username: The username
@@ -152,10 +193,13 @@ async def send_user_message(msg: str, username: str, device_count: int, has_spec
     from telegram import InlineKeyboardButton, InlineKeyboardMarkup
     from telegram_bot.main import application
     
-    tg_send_logger.debug(f"📤 Sending user message for {username} (devices: {device_count})")
-    admins = await check_admin()
-    retries = 2
     topics_manager = get_topics_manager()
+    retries = 2
+    
+    # Create a unique key for this user message (for deduplication)
+    message_key = f"no_limit:{username}"
+    
+    tg_send_logger.debug(f"📤 Sending user message for {username} (devices: {device_count})")
     
     # Create inline keyboard if user doesn't have special limit and is not except
     reply_markup = None
@@ -175,19 +219,47 @@ async def send_user_message(msg: str, username: str, device_count: int, has_spec
         ]
         reply_markup = InlineKeyboardMarkup(keyboard)
     
+    # Try sending to forum group first if topics are enabled
+    if topics_manager.enabled and topics_manager.group_id:
+        # Check for duplicate
+        if topics_manager.is_message_sent(TopicType.NO_LIMIT, message_key):
+            tg_send_logger.debug(f"⏭️ Skipping duplicate no-limit message for {username}")
+            return
+        
+        thread_id = topics_manager.get_topic_id(TopicType.NO_LIMIT)
+        
+        for attempt in range(retries):
+            try:
+                await application.bot.sendMessage(
+                    chat_id=topics_manager.group_id,
+                    text=msg,
+                    parse_mode="HTML",
+                    reply_markup=reply_markup,
+                    message_thread_id=thread_id
+                )
+                
+                # Mark message as sent for this user
+                await topics_manager.mark_message_sent(TopicType.NO_LIMIT, message_key)
+                
+                tg_send_logger.debug(f"✅ User message sent to forum group (thread={thread_id})")
+                return
+            except Exception as e:
+                tg_send_logger.warning(f"⚠️ Attempt {attempt + 1}/{retries} failed for forum group: {e}")
+    
+    # Fallback: send to admins
+    admins = await check_admin()
+    
     if admins:
         for admin in admins:
-            thread_id = topics_manager.get_topic_id(admin, TopicType.NO_LIMIT)
             for attempt in range(retries):
                 try:
                     await application.bot.sendMessage(
                         chat_id=admin, 
                         text=msg, 
                         parse_mode="HTML",
-                        reply_markup=reply_markup,
-                        message_thread_id=thread_id
+                        reply_markup=reply_markup
                     )
-                    tg_send_logger.debug(f"✅ User message sent to admin {admin} (thread={thread_id})")
+                    tg_send_logger.debug(f"✅ User message sent to admin {admin}")
                     break
                 except Exception as e:
                     tg_send_logger.warning(f"⚠️ Attempt {attempt + 1}/{retries} failed for admin {admin}: {e}")

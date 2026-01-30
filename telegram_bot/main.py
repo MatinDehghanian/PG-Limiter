@@ -42,6 +42,7 @@ from telegram_bot.constants import (
     GET_GENERAL_LIMIT_NUMBER,
     SET_IPINFO_TOKEN,
     RESTORE_CONFIG,
+    WAITING_GROUP_ID,
 )
 from telegram_bot.keyboards import (
     create_main_menu_keyboard,
@@ -666,6 +667,22 @@ async def callback_query_handler(update: Update, context: ContextTypes.DEFAULT_T
         await handle_topics_clear_callback(query, context)
         return
     
+    if data == CallbackData.TOPICS_SET_GROUP:
+        from telegram_bot.handlers.topics_settings import handle_topics_set_group_callback
+        result = await handle_topics_set_group_callback(query, context)
+        # This returns a conversation state, but we handle it in the callback handler
+        return
+    
+    if data == CallbackData.TOPICS_CHECK_PERMISSIONS:
+        from telegram_bot.handlers.topics_settings import handle_topics_check_permissions_callback
+        await handle_topics_check_permissions_callback(query, context)
+        return
+    
+    if data == CallbackData.TOPICS_CLEAR_CACHE:
+        from telegram_bot.handlers.topics_settings import handle_topics_clear_cache_callback
+        await handle_topics_clear_cache_callback(query, context)
+        return
+    
     # Back to settings callback
     if data == CallbackData.BACK_SETTINGS:
         await query.edit_message_text(
@@ -1162,6 +1179,13 @@ async def text_message_handler(update: Update, context: ContextTypes.DEFAULT_TYP
     if waiting_for == "cdn_inbound":
         from telegram_bot.handlers.settings import cdn_mode_add_handler
         await cdn_mode_add_handler(update, context)
+        context.user_data["waiting_for"] = None
+        return
+    
+    # Handle forum group ID input
+    if waiting_for == "forum_group_id":
+        from telegram_bot.handlers.topics_settings import topics_set_group_receive
+        await topics_set_group_receive(update, context)
         context.user_data["waiting_for"] = None
         return
     

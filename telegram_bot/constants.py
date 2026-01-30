@@ -26,7 +26,8 @@ Contains callback data constants and conversation states.
     WAITING_USERNAME_FOR_LIMIT,
     SET_CDN_INBOUND,
     SET_NODE_SETTINGS,
-) = range(21)
+    WAITING_GROUP_ID,
+) = range(22)
 
 
 class CallbackData:
@@ -191,6 +192,9 @@ class CallbackData:
     TOPICS_TOGGLE = "topics_toggle"
     TOPICS_SETUP = "topics_setup"
     TOPICS_CLEAR = "topics_clear"
+    TOPICS_SET_GROUP = "topics_set_group"
+    TOPICS_CHECK_PERMISSIONS = "topics_check_permissions"
+    TOPICS_CLEAR_CACHE = "topics_clear_cache"
     
     # Cleanup
     CLEANUP_DELETED_USERS = "cleanup_deleted_users"
