@@ -29,7 +29,15 @@ _panel_health = {
     "last_https_success": 0,
     "last_http_success": 0,
     "prefer_https": True,  # Start with HTTPS preference
+    "panel_available": True,  # Track if panel is available
+    "last_unavailable_time": 0,  # When panel became unavailable
+    "consecutive_failures": 0,  # Count consecutive connection failures
 }
+
+# Panel availability settings
+PANEL_UNAVAILABLE_THRESHOLD = 5  # Failures before marking panel as unavailable
+PANEL_CHECK_INTERVAL = 10  # Seconds between availability checks when panel is down
+MAX_WAIT_FOR_PANEL = 600  # Maximum seconds to wait for panel (10 minutes)
 
 
 def _get_scheme_order() -> list[str]:
@@ -49,6 +57,96 @@ def _record_success(scheme: str):
 def _record_failure(scheme: str):
     """Record a failed request."""
     _panel_health[f"{scheme}_failures"] = _panel_health.get(f"{scheme}_failures", 0) + 1
+
+
+def _record_connection_failure():
+    """Record a connection failure (panel might be restarting)."""
+    _panel_health["consecutive_failures"] += 1
+    if _panel_health["consecutive_failures"] >= PANEL_UNAVAILABLE_THRESHOLD:
+        if _panel_health["panel_available"]:
+            _panel_health["panel_available"] = False
+            _panel_health["last_unavailable_time"] = time.time()
+            request_logger.warning("⚠️ Panel appears to be unavailable (restarting?)")
+
+
+def _record_connection_success():
+    """Record a successful connection (panel is available)."""
+    was_unavailable = not _panel_health["panel_available"]
+    _panel_health["consecutive_failures"] = 0
+    _panel_health["panel_available"] = True
+    if was_unavailable:
+        downtime = time.time() - _panel_health["last_unavailable_time"]
+        request_logger.info(f"✅ Panel is back online after {downtime:.0f}s")
+
+
+async def check_panel_availability(panel_data: PanelType, timeout: float = 5.0) -> bool:
+    """
+    Quick check if the panel is available.
+    
+    Args:
+        panel_data: Panel connection data
+        timeout: Timeout for the check in seconds
+        
+    Returns:
+        bool: True if panel is reachable, False otherwise
+    """
+    for scheme in _get_scheme_order():
+        url = f"{scheme}://{panel_data.panel_domain}/api/"
+        try:
+            async with httpx.AsyncClient(verify=False, timeout=timeout) as client:
+                response = await client.get(url)
+                # Any response (even 401/404) means panel is up
+                if response.status_code < 500:
+                    _record_connection_success()
+                    return True
+        except (httpx.ConnectError, httpx.TimeoutException, SSLError):
+            continue
+        except Exception:
+            continue
+    
+    _record_connection_failure()
+    return False
+
+
+async def wait_for_panel(panel_data: PanelType, max_wait: float = None) -> bool:
+    """
+    Wait for the panel to become available (useful during panel restarts).
+    
+    Args:
+        panel_data: Panel connection data
+        max_wait: Maximum seconds to wait (default: MAX_WAIT_FOR_PANEL)
+        
+    Returns:
+        bool: True if panel became available, False if timeout
+    """
+    if max_wait is None:
+        max_wait = MAX_WAIT_FOR_PANEL
+    
+    start_time = time.time()
+    check_count = 0
+    
+    while (time.time() - start_time) < max_wait:
+        check_count += 1
+        if await check_panel_availability(panel_data):
+            if check_count > 1:
+                elapsed = time.time() - start_time
+                request_logger.info(f"✅ Panel available after {elapsed:.0f}s ({check_count} checks)")
+            return True
+        
+        elapsed = time.time() - start_time
+        remaining = max_wait - elapsed
+        wait_time = min(PANEL_CHECK_INTERVAL, remaining)
+        
+        if check_count == 1:
+            request_logger.warning(f"⏳ Panel unavailable, waiting up to {max_wait:.0f}s for it to come back...")
+        elif check_count % 6 == 0:  # Log every ~60 seconds
+            request_logger.info(f"⏳ Still waiting for panel... ({elapsed:.0f}s elapsed, {remaining:.0f}s remaining)")
+        
+        if wait_time > 0:
+            await asyncio.sleep(wait_time)
+    
+    request_logger.error(f"❌ Panel did not become available after {max_wait:.0f}s")
+    return False
 
 
 async def panel_request(
@@ -110,6 +208,9 @@ async def panel_request(
                     elapsed = (time.perf_counter() - start_time) * 1000
                     log_api_request(method, url, response.status_code, elapsed)
                     
+                    # Any response means panel is reachable
+                    _record_connection_success()
+                    
                     # Success
                     if response.status_code in (200, 201, 204):
                         _record_success(scheme)
@@ -157,6 +258,7 @@ async def panel_request(
                 log_api_request(method, url, None, elapsed, "Timeout")
                 _record_failure(scheme)
                 _record_failure(scheme)  # Double penalty for timeout
+                _record_connection_failure()  # Track for panel availability
                 last_error = f"Timeout on {url}"
                 request_logger.warning(last_error)
                 continue
@@ -165,6 +267,7 @@ async def panel_request(
                 elapsed = (time.perf_counter() - start_time) * 1000
                 log_api_request(method, url, None, elapsed, "Connection Error")
                 _record_failure(scheme)
+                _record_connection_failure()  # Track for panel availability
                 last_error = f"Connection error on {url}: {str(e)[:50]}"
                 continue
                 
@@ -350,6 +453,9 @@ def get_panel_health() -> dict:
             "last_success": _panel_health["last_http_success"],
         },
         "preferred_scheme": _get_scheme_order()[0],
+        "panel_available": _panel_health["panel_available"],
+        "consecutive_failures": _panel_health["consecutive_failures"],
+        "last_unavailable_time": _panel_health["last_unavailable_time"],
     }
 
 
@@ -362,4 +468,12 @@ def reset_panel_health():
         "last_https_success": 0,
         "last_http_success": 0,
         "prefer_https": True,
+        "panel_available": True,
+        "last_unavailable_time": 0,
+        "consecutive_failures": 0,
     }
+
+
+def is_panel_available() -> bool:
+    """Check if panel is currently marked as available."""
+    return _panel_health["panel_available"]

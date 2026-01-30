@@ -32,7 +32,7 @@ try:
 except ImportError:
     REDIS_AVAILABLE = False
 
-VERSION = "0.8.4"
+VERSION = "0.8.5"
 
 # Main logger
 main_logger = get_logger("limiter.main")
@@ -107,8 +107,11 @@ async def main():
         result = await enable_selected_users(panel_data, dis_users)
         enabled = result.get("enabled", [])
         failed = result.get("failed", [])
+        not_found = result.get("not_found", [])
         if enabled:
             main_logger.info(f"✓ Re-enabled {len(enabled)} previously disabled users")
+        if not_found:
+            main_logger.info(f"🗑️ {len(not_found)} users were deleted from panel")
         if failed:
             main_logger.warning(f"⚠️ Failed to re-enable {len(failed)} users: {failed}")
     else:

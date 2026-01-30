@@ -598,7 +598,7 @@ async def enable_all_user(panel_data: PanelType) -> None | ValueError:
     users_logger.info(f"✅ Enabled all users: {enabled_count} success, {failed_count} failed")
 
 
-async def enable_user_by_status(panel_data: PanelType, username: str) -> bool:
+async def enable_user_by_status(panel_data: PanelType, username: str) -> tuple[bool, bool]:
     """
     Enable a user by changing their status to 'active'.
 
@@ -607,7 +607,9 @@ async def enable_user_by_status(panel_data: PanelType, username: str) -> bool:
         username (str): The username to enable.
 
     Returns:
-        bool: True if successful, False otherwise.
+        tuple[bool, bool]: (success, not_found)
+            - success: True if user was successfully enabled
+            - not_found: True if user doesn't exist (404), should be removed from disabled list
     """
     from utils.panel_api.request_helper import panel_put
     
@@ -631,14 +633,15 @@ async def enable_user_by_status(panel_data: PanelType, username: str) -> bool:
             if response.status_code in (200, 201):
                 log_user_action("ENABLE", username, "status=active", success=True)
                 users_logger.info(f"✅ Enabled user by status: {username}")
-                return True
+                return (True, False)  # success, not deleted
             elif response.status_code == 401:
                 await invalidate_token_cache()
                 users_logger.warning("Got 401 error, retrying...")
                 continue
             elif response.status_code == 404:
-                users_logger.warning(f"User {username} not found")
-                return False
+                users_logger.warning(f"User {username} not found (deleted from panel)")
+                log_user_action("ENABLE", username, "User not found (deleted)", success=False)
+                return (False, True)  # failed, user was deleted
         
         users_logger.warning(f"Attempt {attempt + 1}/{max_attempts} failed")
         
@@ -647,10 +650,10 @@ async def enable_user_by_status(panel_data: PanelType, username: str) -> bool:
             await asyncio.sleep(wait_time)
     
     log_user_action("ENABLE", username, "Failed after max attempts", success=False)
-    return False
+    return (False, False)  # failed, but user might still exist
 
 
-async def enable_user_by_group(panel_data: PanelType, username: str) -> bool:
+async def enable_user_by_group(panel_data: PanelType, username: str) -> tuple[bool, bool]:
     """
     Enable a user by restoring their original groups and setting status to active.
     Combines both operations into a single API request.
@@ -665,7 +668,9 @@ async def enable_user_by_group(panel_data: PanelType, username: str) -> bool:
         username (str): The username to enable.
 
     Returns:
-        bool: True if successful, False otherwise.
+        tuple[bool, bool]: (success, not_found)
+            - success: True if user was successfully enabled
+            - not_found: True if user doesn't exist (404), should be removed from disabled list
     """
     users_logger.debug(f"✅ Enabling user by group restore: {username}")
     try:
@@ -698,37 +703,45 @@ async def enable_user_by_group(panel_data: PanelType, username: str) -> bool:
             
             # Always get current user details to check their group status
             user_data = await get_user_details(panel_data, username)
-            if user_data:
-                current_groups = user_data.get("group_ids", []) or []
-                
-                if disabled_group_id is not None and disabled_group_id in current_groups:
-                    # User is in disabled group - remove them from it
-                    users_logger.info(f"👥 User {username} is in disabled group {disabled_group_id}, removing...")
-                    new_groups = [g for g in current_groups if g != disabled_group_id]
-                    # Combined API call: set both group_ids and status in one request
-                    success = await _update_user_groups_and_status(panel_data, username, new_groups, "active")
-                    if success:
-                        log_user_action("ENABLE", username, f"removed from disabled group {disabled_group_id}, status active (no saved groups)", success=True)
-                        users_logger.info(f"✅ Enabled user: {username} (removed from disabled group, status active)")
-                        return True
-                    else:
-                        users_logger.error(f"❌ Failed to remove {username} from disabled group")
-                        return False
+            if user_data is None:
+                # User doesn't exist in panel (404)
+                users_logger.warning(f"User {username} not found (deleted from panel)")
+                # Clean up from JSON storage if exists
+                await groups_storage.remove_user(username)
+                return (False, True)  # failed, user was deleted
+            
+            current_groups = user_data.get("group_ids", []) or []
+            
+            if disabled_group_id is not None and disabled_group_id in current_groups:
+                # User is in disabled group - remove them from it
+                users_logger.info(f"👥 User {username} is in disabled group {disabled_group_id}, removing...")
+                new_groups = [g for g in current_groups if g != disabled_group_id]
+                # Combined API call: set both group_ids and status in one request
+                success, not_found = await _update_user_groups_and_status(panel_data, username, new_groups, "active")
+                if not_found:
+                    await groups_storage.remove_user(username)
+                    return (False, True)
+                if success:
+                    log_user_action("ENABLE", username, f"removed from disabled group {disabled_group_id}, status active (no saved groups)", success=True)
+                    users_logger.info(f"✅ Enabled user: {username} (removed from disabled group, status active)")
+                    return (True, False)
                 else:
-                    # User is NOT in disabled group - just update status and keep current groups
-                    users_logger.info(f"👥 User {username} not in disabled group (current groups: {current_groups}), updating status only")
-                    success = await _update_user_groups_and_status(panel_data, username, current_groups, "active")
-                    if success:
-                        log_user_action("ENABLE", username, f"status active, kept existing groups {current_groups}", success=True)
-                        users_logger.info(f"✅ Enabled user: {username} (status active, groups unchanged)")
-                        return True
-                    else:
-                        users_logger.error(f"❌ Failed to enable {username}")
-                        return False
+                    users_logger.error(f"❌ Failed to remove {username} from disabled group")
+                    return (False, False)
             else:
-                # Could not get user details - try status-only as last resort
-                users_logger.error(f"❌ Could not get user details for {username}, trying status-only enable")
-                return await enable_user_by_status(panel_data, username)
+                # User is NOT in disabled group - just update status and keep current groups
+                users_logger.info(f"👥 User {username} not in disabled group (current groups: {current_groups}), updating status only")
+                success, not_found = await _update_user_groups_and_status(panel_data, username, current_groups, "active")
+                if not_found:
+                    await groups_storage.remove_user(username)
+                    return (False, True)
+                if success:
+                    log_user_action("ENABLE", username, f"status active, kept existing groups {current_groups}", success=True)
+                    users_logger.info(f"✅ Enabled user: {username} (status active, groups unchanged)")
+                    return (True, False)
+                else:
+                    users_logger.error(f"❌ Failed to enable {username}")
+                    return (False, False)
         
         # We have original_groups - restore them
         # But first, ensure we don't accidentally restore the disabled group
@@ -742,23 +755,29 @@ async def enable_user_by_group(panel_data: PanelType, username: str) -> bool:
         
         users_logger.debug(f"👥 Restoring original groups for {username} (from {groups_source}): {original_groups}")
         # Combined API call: set both group_ids and status in one request
-        success = await _update_user_groups_and_status(panel_data, username, original_groups, "active")
+        success, not_found = await _update_user_groups_and_status(panel_data, username, original_groups, "active")
+        
+        if not_found:
+            # User was deleted - clean up from storage
+            await groups_storage.remove_user(username)
+            log_user_action("ENABLE", username, "User not found (deleted)", success=False)
+            return (False, True)
         
         if success:
             # Clean up from JSON storage
             await groups_storage.remove_user(username)
             log_user_action("ENABLE", username, f"restored groups {original_groups} (from {groups_source}), status active", success=True)
             users_logger.info(f"✅ Enabled user by group: {username} (restored groups {original_groups}, status active)")
-            return True
+            return (True, False)
         log_user_action("ENABLE", username, "Failed to restore groups", success=False)
-        return False
+        return (False, False)
     except Exception as error:
         users_logger.error(f"Error enabling user by group: {error}")
         log_user_action("ENABLE", username, str(error), success=False)
-        return False
+        return (False, False)
 
 
-async def _update_user_groups_and_status(panel_data: PanelType, username: str, group_ids: list[int], status: str) -> bool:
+async def _update_user_groups_and_status(panel_data: PanelType, username: str, group_ids: list[int], status: str) -> tuple[bool, bool]:
     """
     Internal helper to update both user groups and status in a single API call.
     
@@ -769,7 +788,9 @@ async def _update_user_groups_and_status(panel_data: PanelType, username: str, g
         status: Status to set ("active" or "disabled").
     
     Returns:
-        bool: True if successful, False otherwise.
+        tuple[bool, bool]: (success, not_found)
+            - success: True if successful
+            - not_found: True if user doesn't exist (404)
     """
     max_attempts = 5
     for attempt in range(max_attempts):
@@ -788,10 +809,17 @@ async def _update_user_groups_and_status(panel_data: PanelType, username: str, g
                 async with httpx.AsyncClient(verify=False) as client:
                     response = await client.put(url, json=payload, headers=headers, timeout=10)
                     elapsed = (time.perf_counter() - start_time) * 1000
+                    
+                    # Check for 404 before raise_for_status
+                    if response.status_code == 404:
+                        log_api_request("PUT", url, 404, elapsed, "User not found")
+                        users_logger.warning(f"User {username} not found (deleted from panel)")
+                        return (False, True)  # failed, user was deleted
+                    
                     response.raise_for_status()
                 log_api_request("PUT", url, response.status_code, elapsed)
                 users_logger.debug(f"Updated user {username}: groups={group_ids}, status={status} [{elapsed:.0f}ms]")
-                return True
+                return (True, False)  # success, not deleted
             except SSLError:
                 elapsed = (time.perf_counter() - start_time) * 1000
                 log_api_request("PUT", url, None, elapsed, "SSL Error")
@@ -800,6 +828,10 @@ async def _update_user_groups_and_status(panel_data: PanelType, username: str, g
                 elapsed = (time.perf_counter() - start_time) * 1000
                 if response.status_code == 401:
                     await invalidate_token_cache()
+                elif response.status_code == 404:
+                    log_api_request("PUT", url, 404, elapsed, "User not found")
+                    users_logger.warning(f"User {username} not found (deleted from panel)")
+                    return (False, True)  # failed, user was deleted
                 log_api_request("PUT", url, response.status_code, elapsed, f"HTTP {response.status_code}")
                 continue
             except httpx.TimeoutException:
@@ -813,7 +845,7 @@ async def _update_user_groups_and_status(panel_data: PanelType, username: str, g
                 continue
         wait_time = min(30, random.randint(2, 5) * (attempt + 1))
         await asyncio.sleep(wait_time)
-    return False
+    return (False, False)  # failed, but user might still exist
 
 
 async def enable_selected_users(
@@ -829,8 +861,10 @@ async def enable_selected_users(
         inactive_users (set[str]): A list of user str that are currently inactive.
 
     Returns:
-        dict with 'enabled' and 'failed' lists of usernames.
-        This allows the caller to handle partial success appropriately.
+        dict with 'enabled', 'failed', and 'not_found' lists of usernames.
+        - enabled: Users successfully enabled
+        - failed: Users that failed but might still exist (retry later)
+        - not_found: Users that were deleted from panel (should be removed from disabled list)
     """
     users_logger.info(f"✅ Enabling {len(inactive_users)} selected users...")
     data = await read_config()
@@ -842,39 +876,52 @@ async def enable_selected_users(
     
     enabled_users: list[str] = []
     failed_users: list[str] = []
+    not_found_users: list[str] = []  # Users deleted from panel
     
     for username in inactive_users:
-        success = False
-        
         try:
             if use_group_method:
                 # Always try group-based enable when using group method
                 # enable_user_by_group now handles cases with and without saved groups
-                success = await enable_user_by_group(panel_data, username)
-                if success:
+                success, not_found = await enable_user_by_group(panel_data, username)
+                if not_found:
+                    message = f"User {username} was deleted from panel, removing from disabled list"
+                    await safe_send_logs_panel(message)
+                    users_logger.warning(message)
+                    not_found_users.append(username)
+                elif success:
                     message = f"Enabled user (group method): {username}"
                     await safe_send_logs_panel(message)
                     enabled_users.append(username)
+                else:
+                    message = f"Failed to enable user: {username}"
+                    await safe_send_logs_panel(message)
+                    users_logger.error(message)
+                    failed_users.append(username)
             else:
-                success = await enable_user_by_status(panel_data, username)
-                if success:
+                success, not_found = await enable_user_by_status(panel_data, username)
+                if not_found:
+                    message = f"User {username} was deleted from panel, removing from disabled list"
+                    await safe_send_logs_panel(message)
+                    users_logger.warning(message)
+                    not_found_users.append(username)
+                elif success:
                     message = f"Enabled user: {username}"
                     await safe_send_logs_panel(message)
                     enabled_users.append(username)
-            
-            if not success:
-                message = f"Failed to enable user: {username}"
-                await safe_send_logs_panel(message)
-                users_logger.error(message)
-                failed_users.append(username)
+                else:
+                    message = f"Failed to enable user: {username}"
+                    await safe_send_logs_panel(message)
+                    users_logger.error(message)
+                    failed_users.append(username)
         except Exception as e:
             message = f"Failed to enable user {username}: {e}"
             await safe_send_logs_panel(message)
             users_logger.error(message)
             failed_users.append(username)
     
-    users_logger.info(f"✅ Enabled selected users: {len(enabled_users)} success, {len(failed_users)} failed")
-    return {"enabled": enabled_users, "failed": failed_users}
+    users_logger.info(f"✅ Enabled selected users: {len(enabled_users)} success, {len(failed_users)} failed, {len(not_found_users)} not found")
+    return {"enabled": enabled_users, "failed": failed_users, "not_found": not_found_users}
 
 
 async def disable_user_by_status(panel_data: PanelType, username: str) -> bool:
@@ -1192,12 +1239,23 @@ async def enable_dis_user(panel_data: PanelType):
     Enable disabled users individually based on when each was disabled.
     Each user is enabled after 'time_to_active_users' seconds from their disable time.
     Handles partial success - removes only successfully enabled users from disabled list.
+    Also removes users that were deleted from the panel to stop retry loops.
+    Waits for panel to be available during restarts.
     """
+    from utils.panel_api.request_helper import is_panel_available, wait_for_panel
+    
     users_logger.info("🔄 Starting disabled user enable loop...")
     while True:
         await asyncio.sleep(30)
         
         try:
+            # Check if panel is available, wait if not
+            if not is_panel_available():
+                users_logger.warning("⏳ Panel unavailable, waiting for it to come back...")
+                if not await wait_for_panel(panel_data):
+                    users_logger.error("❌ Panel still unavailable after waiting, skipping this cycle")
+                    continue
+            
             data = await read_config()
             time_to_active = data.get("monitoring", {}).get("time_to_active_users", 1800)
             
@@ -1208,17 +1266,25 @@ async def enable_dis_user(panel_data: PanelType):
                 users_logger.info(f"✅ Enabling {len(users_to_enable)} users: {users_to_enable}")
                 result = await enable_selected_users(panel_data, set(users_to_enable))
                 
-                # Only remove successfully enabled users from disabled list
+                # Remove successfully enabled users from disabled list
                 enabled = result.get("enabled", [])
                 failed = result.get("failed", [])
+                not_found = result.get("not_found", [])
                 
                 for username in enabled:
                     await dis_obj.remove_user(username)
                     users_logger.info(f"✅ User {username} has been re-enabled")
                 
+                # Remove users that were deleted from panel (404) to stop retry loops
+                for username in not_found:
+                    await dis_obj.remove_user(username)
+                    users_logger.info(f"🗑️ User {username} was deleted from panel, removed from disabled list")
+                
                 # Log failed users but don't remove them - they will be retried next cycle
                 if failed:
                     users_logger.warning(f"⚠️ Failed to enable {len(failed)} users (will retry): {failed}")
+        except Exception as e:
+            users_logger.error(f"Error in enable_dis_user loop: {e}")
         except Exception as e:
             users_logger.error(f"Error in enable_dis_user loop: {e}")
 
@@ -1318,7 +1384,14 @@ async def fix_stuck_disabled_users(panel_data: PanelType) -> dict:
         
         try:
             # Try to enable the user (this will restore groups if available)
-            success = await enable_user_by_group(panel_data, username)
+            success, not_found = await enable_user_by_group(panel_data, username)
+            
+            if not_found:
+                # User was deleted from panel
+                dis_obj = DisabledUsers()
+                await dis_obj.remove_user(username)
+                users_logger.info(f"🗑️ User {username} was deleted from panel")
+                continue
             
             if success:
                 # Also remove from disabled users tracking if present

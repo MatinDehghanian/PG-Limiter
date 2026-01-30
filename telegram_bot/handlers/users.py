@@ -347,6 +347,7 @@ async def enable_single_user(query, username: str):
         result = await enable_selected_users(panel_data, {username})
         enabled = result.get("enabled", [])
         failed = result.get("failed", [])
+        not_found = result.get("not_found", [])
         
         dis_users = DisabledUsers()
         
@@ -354,6 +355,10 @@ async def enable_single_user(query, username: str):
             # Successfully enabled - remove from disabled users list
             await dis_users.remove_user(username)
             await query.answer(f"✅ User {username} enabled!")
+        elif username in not_found:
+            # User was deleted from panel - remove from disabled list
+            await dis_users.remove_user(username)
+            await query.answer(f"🗑️ User {username} was deleted from panel")
         elif username in failed:
             await query.answer(f"❌ Failed to enable {username}!")
         else:
@@ -406,17 +411,27 @@ async def enable_all_disabled_users(query):
         result = await enable_selected_users(panel_data, usernames)
         enabled = result.get("enabled", [])
         failed = result.get("failed", [])
+        not_found = result.get("not_found", [])
         
         # Only remove successfully enabled users from list
         for username in enabled:
             await dis_users.remove_user(username)
         
-        if failed:
+        # Also remove users that were deleted from panel
+        for username in not_found:
+            await dis_users.remove_user(username)
+        
+        if failed or not_found:
+            message = f"⚠️ <b>Results</b>\n\n"
+            message += f"✅ <b>{len(enabled)}</b> users enabled successfully\n"
+            if not_found:
+                message += f"🗑️ <b>{len(not_found)}</b> users were deleted from panel\n"
+            if failed:
+                message += f"❌ <b>{len(failed)}</b> users failed to enable\n"
+                message += f"\n<i>Failed users: {', '.join(failed[:10])}{'...' if len(failed) > 10 else ''}</i>"
+            
             await query.edit_message_text(
-                text=f"⚠️ <b>Partially enabled users</b>\n\n"
-                     f"✅ <b>{len(enabled)}</b> users enabled successfully\n"
-                     f"❌ <b>{len(failed)}</b> users failed to enable\n\n"
-                     f"<i>Failed users: {', '.join(failed[:10])}{'...' if len(failed) > 10 else ''}</i>",
+                text=message,
                 reply_markup=create_back_to_users_keyboard(),
                 parse_mode="HTML"
             )

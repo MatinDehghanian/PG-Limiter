@@ -96,6 +96,7 @@ async def init_node_status_message(nodes: list) -> None:
 async def get_nodes_logs(panel_data: PanelType, node: NodeType) -> None:
     """
     This function establishes an SSE connection to a specific node and retrieves logs.
+    Automatically waits for panel to be available during restarts.
 
     Args:
         panel_data (PanelType): The credentials for the panel.
@@ -104,12 +105,31 @@ async def get_nodes_logs(panel_data: PanelType, node: NodeType) -> None:
     Raises:
         ValueError: If there is an issue with getting the panel token.
     """
+    from utils.panel_api.request_helper import wait_for_panel, is_panel_available
+    
     global _node_connection_status
     
     # Set current node information for log parsing
     await set_current_node_info(node.node_id, node.node_name)
     
+    consecutive_failures = 0
+    max_failures_before_wait = 3  # Wait for panel after 3 consecutive connection failures
+    
     while True:
+        # If we've had multiple consecutive failures, panel might be restarting
+        if consecutive_failures >= max_failures_before_wait:
+            await _update_node_status(node.node_id, node.node_name, "⏳ Waiting for panel...")
+            logger.warning(f"Node {node.node_id} had {consecutive_failures} failures, waiting for panel to be available...")
+            
+            if await wait_for_panel(panel_data):
+                logger.info(f"Panel is back, resuming SSE connection for node {node.node_id}")
+                consecutive_failures = 0
+            else:
+                logger.error(f"Panel still unavailable, will retry node {node.node_id} connection")
+                consecutive_failures = 0  # Reset and try again
+                await asyncio.sleep(30)
+                continue
+        
         get_panel_token = await get_token(panel_data)
         if isinstance(get_panel_token, ValueError):
             raise get_panel_token
@@ -138,6 +158,9 @@ async def get_nodes_logs(panel_data: PanelType, node: NodeType) -> None:
                             response=response
                         )
                     
+                    # Connection successful, reset failure counter
+                    consecutive_failures = 0
+                    
                     # Update status to connected
                     await _update_node_status(node.node_id, node.node_name, "✅ Connected")
                     
@@ -148,13 +171,24 @@ async def get_nodes_logs(panel_data: PanelType, node: NodeType) -> None:
                                 await parse_logs(log_data, node.node_id, node.node_name)
                                 
         except httpx.HTTPStatusError as error:
+            consecutive_failures += 1
             await _update_node_status(node.node_id, node.node_name, "❌ HTTP Error")
             logger.error(f"HTTP error connecting to node {node.node_id}: {error}")
             await asyncio.sleep(10)
             await _update_node_status(node.node_id, node.node_name, "⏳ Reconnecting...")
             continue
+        
+        except httpx.ConnectError as error:
+            consecutive_failures += 1
+            await _update_node_status(node.node_id, node.node_name, "❌ Connection Error")
+            logger.error(f"Connection error for node {node.node_id}: {error}")
+            # Shorter sleep if panel might be restarting
+            await asyncio.sleep(5 if consecutive_failures < max_failures_before_wait else 2)
+            await _update_node_status(node.node_id, node.node_name, "⏳ Reconnecting...")
+            continue
             
         except Exception as error:  # pylint: disable=broad-except
+            consecutive_failures += 1
             await _update_node_status(node.node_id, node.node_name, "❌ Failed")
             logger.error(f"Failed to connect to node {node.node_id}: {error}")
             await asyncio.sleep(10)

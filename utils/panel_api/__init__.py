@@ -54,6 +54,15 @@ from utils.panel_api.admins import (
     get_admins,
 )
 
+# Request helper functions
+from utils.panel_api.request_helper import (
+    check_panel_availability,
+    wait_for_panel,
+    get_panel_health,
+    reset_panel_health,
+    is_panel_available,
+)
+
 __all__ = [
     # Auth
     "get_token",
@@ -85,4 +94,10 @@ __all__ = [
     "get_groups",
     # Admins
     "get_admins",
+    # Request helper
+    "check_panel_availability",
+    "wait_for_panel",
+    "get_panel_health",
+    "reset_panel_health",
+    "is_panel_available",
 ]
