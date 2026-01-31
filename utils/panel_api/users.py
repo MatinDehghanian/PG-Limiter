@@ -653,6 +653,30 @@ async def enable_user_by_status(panel_data: PanelType, username: str) -> tuple[b
     return (False, False)  # failed, but user might still exist
 
 
+async def _clear_database_disable_flags(username: str) -> None:
+    """
+    Clear disable flags in database when a user is enabled.
+    
+    Args:
+        username: The username to clear flags for.
+    """
+    try:
+        from db.database import get_db_session
+        from db.crud import UserCRUD
+        
+        async with get_db_session() as db:
+            user_record = await UserCRUD.get_by_username(db, username)
+            if user_record:
+                user_record.is_disabled_by_limiter = False
+                user_record.original_groups = []
+                user_record.disabled_at = None
+                user_record.enable_at = None
+                await db.commit()
+                users_logger.debug(f"📦 Cleared disable flags in database for {username}")
+    except Exception as db_error:
+        users_logger.warning(f"Could not clear disable flags in database: {db_error}")
+
+
 async def enable_user_by_group(panel_data: PanelType, username: str) -> tuple[bool, bool]:
     """
     Enable a user by restoring their original groups and setting status to active.
@@ -722,6 +746,8 @@ async def enable_user_by_group(panel_data: PanelType, username: str) -> tuple[bo
                     await groups_storage.remove_user(username)
                     return (False, True)
                 if success:
+                    # Clear database disable flags
+                    await _clear_database_disable_flags(username)
                     log_user_action("ENABLE", username, f"removed from disabled group {disabled_group_id}, status active (no saved groups)", success=True)
                     users_logger.info(f"✅ Enabled user: {username} (removed from disabled group, status active)")
                     return (True, False)
@@ -736,6 +762,8 @@ async def enable_user_by_group(panel_data: PanelType, username: str) -> tuple[bo
                     await groups_storage.remove_user(username)
                     return (False, True)
                 if success:
+                    # Clear database disable flags
+                    await _clear_database_disable_flags(username)
                     log_user_action("ENABLE", username, f"status active, kept existing groups {current_groups}", success=True)
                     users_logger.info(f"✅ Enabled user: {username} (status active, groups unchanged)")
                     return (True, False)
@@ -766,6 +794,10 @@ async def enable_user_by_group(panel_data: PanelType, username: str) -> tuple[bo
         if success:
             # Clean up from JSON storage
             await groups_storage.remove_user(username)
+            
+            # Clear database disable flags
+            await _clear_database_disable_flags(username)
+            
             log_user_action("ENABLE", username, f"restored groups {original_groups} (from {groups_source}), status active", success=True)
             users_logger.info(f"✅ Enabled user by group: {username} (restored groups {original_groups}, status active)")
             return (True, False)
@@ -1018,6 +1050,7 @@ async def disable_user_by_group(panel_data: PanelType, username: str, disabled_g
                 user_record = await UserCRUD.get_by_username(db, username)
                 if user_record:
                     user_record.original_groups = original_groups_to_save
+                    user_record.is_disabled_by_limiter = True
                     await db.commit()
                     users_logger.debug(f"📦 Saved groups to database for {username}: {original_groups_to_save}")
         except Exception as db_error:
