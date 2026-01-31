@@ -12,6 +12,7 @@ It includes:
 from utils.warning_system.helpers import (
     safe_send_logs,
     safe_send_warning_log,
+    safe_send_monitoring_log,
     safe_send_disable_notification,
     safe_disable_user,
     safe_disable_user_with_punishment,
@@ -30,6 +31,7 @@ __all__ = [
     # Helpers
     "safe_send_logs",
     "safe_send_warning_log",
+    "safe_send_monitoring_log",
     "safe_send_disable_notification",
     "safe_disable_user",
     "safe_disable_user_with_punishment",

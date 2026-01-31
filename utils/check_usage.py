@@ -9,7 +9,7 @@ import ipaddress
 import re
 from collections import Counter
 
-from telegram_bot.send_message import send_logs, send_user_message, send_active_users_log
+from telegram_bot.send_message import send_logs, send_user_message, send_active_users_log, send_monitoring_log
 from utils.logs import logger
 from utils.panel_api import disable_user
 from utils.read_config import read_config, get_config_value
@@ -552,7 +552,7 @@ async def check_ip_used() -> dict:
     if monitoring_summary:
         try:
             await asyncio.sleep(1)
-            await send_active_users_log(monitoring_summary)
+            await send_monitoring_log(monitoring_summary)
         except Exception as e:
             logger.error(f"Failed to send monitoring summary: {e}")
     

@@ -33,6 +33,19 @@ async def safe_send_logs(message: str, is_warning: bool = False):
         helpers_logger.error(f"❌ Failed to send telegram message: {e}")
 
 
+async def safe_send_monitoring_log(message: str):
+    """Safely send monitoring log to monitoring topic."""
+    try:
+        from telegram_bot.send_message import send_monitoring_log
+        helpers_logger.debug(f"📤 Sending monitoring log message ({len(message)} chars)")
+        await send_monitoring_log(message)
+        helpers_logger.debug("✅ Monitoring log sent successfully")
+    except ImportError as e:
+        helpers_logger.warning(f"⚠️ Telegram not configured: {e}")
+    except Exception as e:
+        helpers_logger.error(f"❌ Failed to send monitoring message: {e}")
+
+
 async def safe_send_warning_log(message: str):
     """Safely send warning log to warnings topic."""
     await safe_send_logs(message, is_warning=True)
