@@ -41,6 +41,7 @@ class TopicType(Enum):
     ACTIVE_USERS = "active_users"
     BACKUPS = "backups"
     NO_LIMIT = "no_limit"
+    MONITORING = "monitoring"
 
 
 # Topic display configuration
@@ -74,6 +75,11 @@ TOPIC_CONFIG = {
         "name": "📱 No Limit Found",
         "icon_color": 0xFB6F5F,  # Orange-red
         "description": "Users without special limits"
+    },
+    TopicType.MONITORING: {
+        "name": "📊 Monitoring",
+        "icon_color": 0x6FB9F0,  # Blue
+        "description": "Monitoring status and analytics"
     },
 }
 

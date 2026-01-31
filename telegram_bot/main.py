@@ -979,6 +979,12 @@ async def callback_query_handler(update: Update, context: ContextTypes.DEFAULT_T
     if data.startswith("enable_user:"):
         username = data.split(":", 1)[1]
         await enable_single_user(query, username)
+        # Delete the disable message after enabling
+        try:
+            from telegram_bot.send_message import delete_disable_message_for_user
+            await delete_disable_message_for_user(username)
+        except Exception:
+            pass
         return
     
     if data.startswith("disabled_page:"):

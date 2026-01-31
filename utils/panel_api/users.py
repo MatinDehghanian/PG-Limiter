@@ -1019,7 +1019,7 @@ async def disable_user_by_group(panel_data: PanelType, username: str, disabled_g
                 if user_record:
                     user_record.original_groups = original_groups_to_save
                     await db.commit()
-                    users_logger.debug(f"📦 Saved groups to database for {username}: {current_groups}")
+                    users_logger.debug(f"📦 Saved groups to database for {username}: {original_groups_to_save}")
         except Exception as db_error:
             users_logger.warning(f"Could not save groups to database (JSON backup exists): {db_error}")
         
@@ -1274,11 +1274,23 @@ async def enable_dis_user(panel_data: PanelType):
                 for username in enabled:
                     await dis_obj.remove_user(username)
                     users_logger.info(f"✅ User {username} has been re-enabled")
+                    # Delete disable message and send enable notification
+                    try:
+                        from telegram_bot.send_message import send_enable_notification
+                        await send_enable_notification(username, delete_disable_msg=True)
+                    except Exception as notify_error:
+                        users_logger.warning(f"Could not send enable notification for {username}: {notify_error}")
                 
                 # Remove users that were deleted from panel (404) to stop retry loops
                 for username in not_found:
                     await dis_obj.remove_user(username)
                     users_logger.info(f"🗑️ User {username} was deleted from panel, removed from disabled list")
+                    # Also delete the disable message for deleted users
+                    try:
+                        from telegram_bot.send_message import delete_disable_message_for_user
+                        await delete_disable_message_for_user(username)
+                    except Exception:
+                        pass
                 
                 # Log failed users but don't remove them - they will be retried next cycle
                 if failed:

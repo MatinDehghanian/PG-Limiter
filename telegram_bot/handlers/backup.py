@@ -606,8 +606,8 @@ async def migrate_backup_cancel(update: Update, _context: ContextTypes.DEFAULT_T
 
 async def send_automatic_backup():
     """
-    Send an automatic backup to all admins.
-    Called by scheduler every 6 hours.
+    Send an automatic backup to the forum group (if topics enabled) or all admins.
+    Called by scheduler based on auto-backup config.
     """
     from telegram_bot.main import application
     from telegram_bot.utils import check_admin
@@ -616,6 +616,10 @@ async def send_automatic_backup():
     backup_logger.info("📦 Creating automatic backup...")
     
     try:
+        # Get auto-backup config for interval info
+        config = get_auto_backup_config()
+        interval_hours = config.get("interval_hours", 1)
+        
         # Create temp directory for backup
         temp_dir = tempfile.mkdtemp()
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -653,30 +657,51 @@ async def send_automatic_backup():
             # Add backup info
             backup_info = f"""PG-Limiter Automatic Backup
 Created: {datetime.now().isoformat()}
-Type: Automatic (scheduled every 6 hours)
+Type: Automatic (scheduled every {interval_hours} hour(s))
 """
             zipf.writestr("backup_info.txt", backup_info)
         
-        # Send to all admins
-        admins = await check_admin()
+        # Get topics manager
         topics_manager = get_topics_manager()
         
+        caption = (
+            "💾 <b>Automatic Backup</b>\n\n"
+            f"🕐 Time: <code>{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}</code>\n"
+            "📁 Includes: Config, Database, Legacy files\n\n"
+            f"💡 <i>Backups are sent every {interval_hours} hour(s)</i>"
+        )
+        
+        # Try sending to forum group first if topics are enabled
+        if topics_manager.enabled and topics_manager.group_id:
+            thread_id = topics_manager.get_topic_id(TopicType.BACKUPS)
+            try:
+                with open(zip_path, 'rb') as f:
+                    await application.bot.send_document(
+                        chat_id=topics_manager.group_id,
+                        document=f,
+                        filename=zip_name,
+                        caption=caption,
+                        parse_mode="HTML",
+                        message_thread_id=thread_id
+                    )
+                backup_logger.info(f"✅ Automatic backup sent to forum group (thread={thread_id})")
+                shutil.rmtree(temp_dir)
+                return
+            except Exception as e:
+                backup_logger.warning(f"⚠️ Failed to send backup to forum group: {e}, falling back to admins")
+        
+        # Fallback: send to all admins
+        admins = await check_admin()
+        
         for admin in admins:
-            thread_id = topics_manager.get_topic_id(admin, TopicType.BACKUPS)
             try:
                 with open(zip_path, 'rb') as f:
                     await application.bot.send_document(
                         chat_id=admin,
                         document=f,
                         filename=zip_name,
-                        caption=(
-                            "💾 <b>Automatic Backup</b>\n\n"
-                            f"🕐 Time: <code>{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}</code>\n"
-                            "📁 Includes: Config, Database, Legacy files\n\n"
-                            "💡 <i>Backups are sent every 6 hours</i>"
-                        ),
+                        caption=caption,
                         parse_mode="HTML",
-                        message_thread_id=thread_id
                     )
                 backup_logger.info(f"✅ Automatic backup sent to admin {admin}")
             except Exception as e:

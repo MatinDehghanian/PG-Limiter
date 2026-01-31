@@ -5,11 +5,63 @@ Messages can be sent to:
 2. Admin private chats (fallback)
 """
 
+import json
+import os
 from utils.logs import get_logger
 from telegram_bot.utils import check_admin
 from telegram_bot.topics import TopicType, get_topics_manager, send_to_topic
 
 tg_send_logger = get_logger("telegram.send")
+
+# File to track disable messages for deletion
+DISABLE_MESSAGES_FILE = "data/disable_messages.json"
+
+
+def _load_disable_messages() -> dict:
+    """Load disable messages tracking from file."""
+    try:
+        if os.path.exists(DISABLE_MESSAGES_FILE):
+            with open(DISABLE_MESSAGES_FILE, 'r', encoding='utf-8') as f:
+                return json.load(f)
+    except Exception as e:
+        tg_send_logger.error(f"Error loading disable messages: {e}")
+    return {}
+
+
+def _save_disable_messages(data: dict):
+    """Save disable messages tracking to file."""
+    try:
+        os.makedirs(os.path.dirname(DISABLE_MESSAGES_FILE), exist_ok=True)
+        with open(DISABLE_MESSAGES_FILE, 'w', encoding='utf-8') as f:
+            json.dump(data, f, indent=2)
+    except Exception as e:
+        tg_send_logger.error(f"Error saving disable messages: {e}")
+
+
+def track_disable_message(username: str, message_id: int, chat_id: int):
+    """Track a disable message for later deletion."""
+    data = _load_disable_messages()
+    data[username] = {"message_id": message_id, "chat_id": chat_id}
+    _save_disable_messages(data)
+    tg_send_logger.debug(f"📝 Tracked disable message for {username}: msg={message_id}, chat={chat_id}")
+
+
+def get_disable_message(username: str) -> tuple[int, int] | None:
+    """Get tracked disable message for a user. Returns (message_id, chat_id) or None."""
+    data = _load_disable_messages()
+    msg_info = data.get(username)
+    if msg_info:
+        return (msg_info["message_id"], msg_info["chat_id"])
+    return None
+
+
+def remove_disable_message_tracking(username: str):
+    """Remove tracking for a user's disable message."""
+    data = _load_disable_messages()
+    if username in data:
+        del data[username]
+        _save_disable_messages(data)
+        tg_send_logger.debug(f"🗑️ Removed disable message tracking for {username}")
 
 
 async def send_logs(msg, return_message_id=False, reply_markup=None, topic_type: TopicType = TopicType.GENERAL, message_key: str = None):
@@ -122,6 +174,41 @@ async def send_no_limit_log(msg, return_message_id=False, reply_markup=None):
     return await send_logs(msg, return_message_id, reply_markup, TopicType.NO_LIMIT)
 
 
+async def send_monitoring_log(msg, return_message_id=False, reply_markup=None):
+    """Send a monitoring message to the monitoring topic."""
+    return await send_logs(msg, return_message_id, reply_markup, TopicType.MONITORING)
+
+
+async def delete_message(message_info):
+    """
+    Delete a message.
+    
+    Args:
+        message_info: Tuple of (message_id, chat_id) returned by send_logs with return_message_id=True
+        
+    Returns:
+        True if successful, False otherwise
+    """
+    if not message_info:
+        return False
+        
+    message_id, chat_id = message_info
+    
+    from telegram_bot.main import application
+    
+    tg_send_logger.debug(f"🗑️ Deleting message {message_id} in chat {chat_id}")
+    try:
+        await application.bot.delete_message(
+            chat_id=chat_id,
+            message_id=message_id
+        )
+        tg_send_logger.debug("✅ Message deleted successfully")
+        return True
+    except Exception as e:
+        tg_send_logger.error(f"❌ Failed to delete message: {e}")
+        return False
+
+
 async def edit_message(message_info, new_text):
     """
     Edit an existing message.
@@ -158,6 +245,7 @@ async def edit_message(message_info, new_text):
 async def send_disable_notification(msg: str, username: str):
     """
     Send a disable notification with an Enable button to the disable/enable topic.
+    Tracks the message ID for later deletion when user is enabled.
     
     Args:
         msg: The message text to send
@@ -171,7 +259,60 @@ async def send_disable_notification(msg: str, username: str):
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
     
-    await send_logs(msg, reply_markup=reply_markup, topic_type=TopicType.DISABLE_ENABLE)
+    # Send with return_message_id to track for later deletion
+    message_info = await send_logs(msg, return_message_id=True, reply_markup=reply_markup, topic_type=TopicType.DISABLE_ENABLE)
+    
+    # Track the message for deletion when user is enabled
+    if message_info:
+        track_disable_message(username, message_info[0], message_info[1])
+
+
+async def send_enable_notification(username: str, delete_disable_msg: bool = True):
+    """
+    Send an enable notification and optionally delete the original disable message.
+    
+    Args:
+        username: The username that was enabled
+        delete_disable_msg: Whether to delete the original disable message
+    """
+    from datetime import datetime
+    
+    tg_send_logger.debug(f"✅ Sending enable notification for {username}")
+    
+    # Delete the original disable message if tracked
+    if delete_disable_msg:
+        message_info = get_disable_message(username)
+        if message_info:
+            deleted = await delete_message(message_info)
+            if deleted:
+                tg_send_logger.info(f"🗑️ Deleted disable message for {username}")
+            remove_disable_message_tracking(username)
+    
+    # Send enable notification
+    enable_time = datetime.now().strftime("%H:%M:%S")
+    msg = f"✅ <b>User Enabled</b>\n\n👤 User: <code>{username}</code>\n🕐 Time: <code>{enable_time}</code>"
+    await send_logs(msg, topic_type=TopicType.DISABLE_ENABLE)
+
+
+async def delete_disable_message_for_user(username: str) -> bool:
+    """
+    Delete the tracked disable message for a user.
+    Called when user is automatically re-enabled after the period.
+    
+    Args:
+        username: The username to delete disable message for
+        
+    Returns:
+        True if message was deleted, False otherwise
+    """
+    message_info = get_disable_message(username)
+    if message_info:
+        deleted = await delete_message(message_info)
+        remove_disable_message_tracking(username)
+        if deleted:
+            tg_send_logger.info(f"🗑️ Deleted disable message for {username}")
+        return deleted
+    return False
 
 
 async def send_user_message(msg: str, username: str, device_count: int, has_special_limit: bool, is_except: bool, general_limit: int = 2):
