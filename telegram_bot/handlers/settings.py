@@ -701,6 +701,171 @@ async def handle_select_disabled_group_callback(query, _context: ContextTypes.DE
         )
 
 
+# ═══════════════════════════════════════════════════════════════════════════════
+# FALLBACK GROUP HANDLERS
+# ═══════════════════════════════════════════════════════════════════════════════
+
+
+def create_fallback_group_keyboard(groups: list, current_group_id: int = None):
+    """Create keyboard for selecting fallback group."""
+    keyboard = []
+    
+    for group in groups:
+        gid = group.get("id", 0)
+        name = group.get("name", "Unknown")
+        is_selected = gid == current_group_id
+        prefix = "✅" if is_selected else "⬜"
+        
+        keyboard.append([
+            InlineKeyboardButton(
+                f"{prefix} {name} (ID: {gid})",
+                callback_data=f"select_fallback_group:{gid}"
+            )
+        ])
+    
+    # Add option to clear fallback group
+    if current_group_id:
+        keyboard.append([InlineKeyboardButton("❌ Clear Fallback Group", callback_data=CallbackData.CLEAR_FALLBACK_GROUP)])
+    
+    keyboard.append([InlineKeyboardButton("🔄 Refresh", callback_data=CallbackData.FALLBACK_GROUP_MENU)])
+    keyboard.append([InlineKeyboardButton("« Back to Disable Method", callback_data=CallbackData.DISABLE_METHOD_MENU)])
+    
+    return InlineKeyboardMarkup(keyboard)
+
+
+async def handle_fallback_group_menu_callback(query, _context: ContextTypes.DEFAULT_TYPE):
+    """Handle callback for selecting fallback group."""
+    from telegram.error import BadRequest
+    
+    groups, config_data = await _get_groups_from_panel()
+    
+    if not groups:
+        try:
+            await query.edit_message_text(
+                text="🔄 <b>Fallback Group</b>\n\n"
+                     "❌ Could not load groups from panel.\n"
+                     "Please check your panel connection.",
+                reply_markup=InlineKeyboardMarkup([
+                    [InlineKeyboardButton("🔄 Retry", callback_data=CallbackData.FALLBACK_GROUP_MENU)],
+                    [InlineKeyboardButton("« Back", callback_data=CallbackData.DISABLE_METHOD_MENU)]
+                ]),
+                parse_mode="HTML"
+            )
+        except BadRequest as e:
+            if "message is not modified" not in str(e).lower():
+                raise
+        return
+    
+    # Get current fallback group ID
+    current_group_id = config_data.get("fallback_group_id")
+    if current_group_id:
+        try:
+            current_group_id = int(current_group_id)
+        except (ValueError, TypeError):
+            current_group_id = None
+    
+    keyboard = create_fallback_group_keyboard(groups, current_group_id)
+    
+    current_name = "Not set"
+    if current_group_id:
+        for group in groups:
+            if group.get("id") == current_group_id:
+                current_name = group.get("name", "Unknown")
+                break
+    
+    try:
+        await query.edit_message_text(
+            text="🔄 <b>Fallback Group</b>\n\n"
+                 f"Current: <b>{current_name}</b>\n\n"
+                 "Select the group that will be assigned to users when:\n"
+                 "• Their original groups cannot be found when re-enabling\n"
+                 "• All active users should have this group\n\n"
+                 "<i>This ensures all enabled users have at least one valid group.</i>",
+            reply_markup=keyboard,
+            parse_mode="HTML"
+        )
+    except BadRequest as e:
+        if "message is not modified" not in str(e).lower():
+            raise
+
+
+async def handle_select_fallback_group_callback(query, _context: ContextTypes.DEFAULT_TYPE, group_id: int):
+    """Handle callback for selecting specific fallback group."""
+    from telegram_bot.keyboards import create_disable_method_keyboard
+    
+    try:
+        await save_config_value("fallback_group_id", str(group_id))
+        
+        # Get group name for confirmation
+        groups, config_data = await _get_groups_from_panel()
+        group_name = "Unknown"
+        disabled_group_name = None
+        for group in groups:
+            if group.get("id") == group_id:
+                group_name = group.get("name", "Unknown")
+            disabled_group_id = config_data.get("disabled_group_id")
+            if disabled_group_id and group.get("id") == int(disabled_group_id):
+                disabled_group_name = group.get("name", "Unknown")
+        
+        current_method = config_data.get("disable_method", "status")
+        
+        await query.edit_message_text(
+            text="🚫 <b>Disable Method</b>\n\n"
+                 f"✅ Fallback group set to <b>{group_name}</b> (ID: {group_id})\n\n"
+                 "• <b>By Status</b>: Set user status to 'disabled'\n"
+                 "• <b>By Group</b>: Move user to a disabled group\n"
+                 "• <b>Fallback Group</b>: Default group for re-enabled users",
+            reply_markup=create_disable_method_keyboard(current_method, disabled_group_name, group_name),
+            parse_mode="HTML"
+        )
+        
+    except Exception as e:
+        await query.edit_message_text(
+            text=f"❌ Error: {str(e)}",
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton("« Back", callback_data=CallbackData.FALLBACK_GROUP_MENU)]
+            ]),
+            parse_mode="HTML"
+        )
+
+
+async def handle_clear_fallback_group_callback(query, _context: ContextTypes.DEFAULT_TYPE):
+    """Handle callback for clearing fallback group."""
+    from telegram_bot.keyboards import create_disable_method_keyboard
+    
+    try:
+        await save_config_value("fallback_group_id", "")
+        
+        groups, config_data = await _get_groups_from_panel()
+        current_method = config_data.get("disable_method", "status")
+        disabled_group_name = None
+        disabled_group_id = config_data.get("disabled_group_id")
+        if disabled_group_id:
+            for group in groups:
+                if group.get("id") == int(disabled_group_id):
+                    disabled_group_name = group.get("name", "Unknown")
+                    break
+        
+        await query.edit_message_text(
+            text="🚫 <b>Disable Method</b>\n\n"
+                 "✅ Fallback group has been cleared.\n\n"
+                 "• <b>By Status</b>: Set user status to 'disabled'\n"
+                 "• <b>By Group</b>: Move user to a disabled group\n"
+                 "• <b>Fallback Group</b>: Default group for re-enabled users",
+            reply_markup=create_disable_method_keyboard(current_method, disabled_group_name, None),
+            parse_mode="HTML"
+        )
+        
+    except Exception as e:
+        await query.edit_message_text(
+            text=f"❌ Error: {str(e)}",
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton("« Back", callback_data=CallbackData.FALLBACK_GROUP_MENU)]
+            ]),
+            parse_mode="HTML"
+        )
+
+
 def create_user_sync_keyboard(current_interval: int):
     """Create keyboard for user sync interval settings."""
     keyboard = []

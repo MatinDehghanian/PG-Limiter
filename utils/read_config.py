@@ -222,6 +222,13 @@ async def read_config(check_required_elements: bool = False) -> Dict[str, Any]:
         except (ValueError, TypeError):
             config["disabled_group_id"] = None
     
+    config["fallback_group_id"] = db_config.get("fallback_group_id")
+    if config["fallback_group_id"]:
+        try:
+            config["fallback_group_id"] = int(config["fallback_group_id"])
+        except (ValueError, TypeError):
+            config["fallback_group_id"] = None
+    
     config["enhanced_details"] = db_config.get("enhanced_details", "true").lower() == "true"
     config["show_single_ip_users"] = db_config.get("show_single_ip_users", "false").lower() == "true"
     config["ipinfo_token"] = db_config.get("ipinfo_token", "")
@@ -401,6 +408,7 @@ def get_config_value(config: dict, key: str, default: Any = None) -> Any:
         "IP_LOCATION": lambda c: c.get("country_code"),  # Alias
         "DISABLE_METHOD": lambda c: c.get("disable_method"),
         "DISABLED_GROUP_ID": lambda c: c.get("disabled_group_id"),
+        "FALLBACK_GROUP_ID": lambda c: c.get("fallback_group_id"),
         "ENHANCED_DETAILS": lambda c: c.get("enhanced_details"),
         "SHOW_SINGLE_IP_USERS": lambda c: c.get("show_single_ip_users"),
         "IPINFO_TOKEN": lambda c: c.get("ipinfo_token"),

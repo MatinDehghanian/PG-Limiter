@@ -720,10 +720,11 @@ async def enable_user_by_group(panel_data: PanelType, username: str) -> tuple[bo
                 users_logger.debug(f"Could not check database for groups: {db_error}")
         
         if original_groups is None:
-            users_logger.warning(f"No saved groups found for user {username} in JSON or database, will try to remove from disabled group")
-            # Get config to check if user is in disabled group
+            users_logger.warning(f"No saved groups found for user {username} in JSON or database, will use fallback group")
+            # Get config to check if user is in disabled group and get fallback group
             data = await read_config()
             disabled_group_id = data.get("disabled_group_id", None)
+            fallback_group_id = data.get("fallback_group_id", None)
             
             # Always get current user details to check their group status
             user_data = await get_user_details(panel_data, username)
@@ -736,50 +737,52 @@ async def enable_user_by_group(panel_data: PanelType, username: str) -> tuple[bo
             
             current_groups = user_data.get("group_ids", []) or []
             
-            if disabled_group_id is not None and disabled_group_id in current_groups:
-                # User is in disabled group - remove them from it
-                users_logger.info(f"👥 User {username} is in disabled group {disabled_group_id}, removing...")
-                new_groups = [g for g in current_groups if g != disabled_group_id]
-                # Combined API call: set both group_ids and status in one request
-                success, not_found = await _update_user_groups_and_status(panel_data, username, new_groups, "active")
-                if not_found:
-                    await groups_storage.remove_user(username)
-                    return (False, True)
-                if success:
-                    # Clear database disable flags
-                    await _clear_database_disable_flags(username)
-                    log_user_action("ENABLE", username, f"removed from disabled group {disabled_group_id}, status active (no saved groups)", success=True)
-                    users_logger.info(f"✅ Enabled user: {username} (removed from disabled group, status active)")
-                    return (True, False)
-                else:
-                    users_logger.error(f"❌ Failed to remove {username} from disabled group")
-                    return (False, False)
+            # Calculate new groups: remove disabled group, add fallback group if set
+            new_groups = [g for g in current_groups if g != disabled_group_id]
+            
+            # If fallback group is set and not already in new_groups, add it
+            if fallback_group_id is not None and fallback_group_id not in new_groups:
+                new_groups.append(fallback_group_id)
+                users_logger.info(f"👥 Adding fallback group {fallback_group_id} for user {username}")
+            
+            # If no groups at all, use fallback group only
+            if not new_groups and fallback_group_id is not None:
+                new_groups = [fallback_group_id]
+            
+            users_logger.info(f"👥 Enabling user {username} with groups: {new_groups} (no saved original groups)")
+            success, not_found = await _update_user_groups_and_status(panel_data, username, new_groups, "active")
+            if not_found:
+                await groups_storage.remove_user(username)
+                return (False, True)
+            if success:
+                # Clear database disable flags
+                await _clear_database_disable_flags(username)
+                log_user_action("ENABLE", username, f"set groups to {new_groups}, status active (fallback)", success=True)
+                users_logger.info(f"✅ Enabled user: {username} (groups: {new_groups}, status active)")
+                return (True, False)
             else:
-                # User is NOT in disabled group - just update status and keep current groups
-                users_logger.info(f"👥 User {username} not in disabled group (current groups: {current_groups}), updating status only")
-                success, not_found = await _update_user_groups_and_status(panel_data, username, current_groups, "active")
-                if not_found:
-                    await groups_storage.remove_user(username)
-                    return (False, True)
-                if success:
-                    # Clear database disable flags
-                    await _clear_database_disable_flags(username)
-                    log_user_action("ENABLE", username, f"status active, kept existing groups {current_groups}", success=True)
-                    users_logger.info(f"✅ Enabled user: {username} (status active, groups unchanged)")
-                    return (True, False)
-                else:
-                    users_logger.error(f"❌ Failed to enable {username}")
-                    return (False, False)
+                users_logger.error(f"❌ Failed to enable {username}")
+                return (False, False)
         
         # We have original_groups - restore them
         # But first, ensure we don't accidentally restore the disabled group
         data = await read_config()
         disabled_group_id = data.get("disabled_group_id", None)
+        fallback_group_id = data.get("fallback_group_id", None)
         
         # Filter out the disabled group from original_groups if present
         if disabled_group_id is not None and disabled_group_id in original_groups:
             users_logger.warning(f"⚠️ Removing disabled_group_id {disabled_group_id} from original_groups for {username}")
             original_groups = [g for g in original_groups if g != disabled_group_id]
+        
+        # If original_groups is empty after filtering, use fallback group
+        if not original_groups and fallback_group_id is not None:
+            original_groups = [fallback_group_id]
+            users_logger.info(f"👥 Original groups empty, using fallback group {fallback_group_id} for {username}")
+        # Ensure fallback group is in the groups if set
+        elif fallback_group_id is not None and fallback_group_id not in original_groups:
+            original_groups.append(fallback_group_id)
+            users_logger.info(f"👥 Adding fallback group {fallback_group_id} to original groups for {username}")
         
         users_logger.debug(f"👥 Restoring original groups for {username} (from {groups_source}): {original_groups}")
         # Combined API call: set both group_ids and status in one request

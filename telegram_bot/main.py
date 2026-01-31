@@ -126,6 +126,9 @@ from telegram_bot.handlers.settings import (
     handle_ipinfo_token_input,
     handle_disable_by_group_callback,
     handle_select_disabled_group_callback,
+    handle_fallback_group_menu_callback,
+    handle_select_fallback_group_callback,
+    handle_clear_fallback_group_callback,
     handle_user_sync_menu_callback,
     handle_user_sync_interval_callback,
     handle_user_sync_now_callback,
@@ -568,10 +571,12 @@ async def callback_query_handler(update: Update, context: ContextTypes.DEFAULT_T
         config_data = await read_config()
         current_method = config_data.get("disable_method", "status")
         disabled_group_id = config_data.get("disabled_group_id")
+        fallback_group_id = config_data.get("fallback_group_id")
         disabled_group_name = None
+        fallback_group_name = None
         
-        # Get group name if group method is selected
-        if current_method == "group" and disabled_group_id:
+        # Get group names if set
+        if (current_method == "group" and disabled_group_id) or fallback_group_id:
             try:
                 from utils.user_group_filter import get_all_groups
                 from utils.types import PanelType
@@ -583,9 +588,10 @@ async def callback_query_handler(update: Update, context: ContextTypes.DEFAULT_T
                 )
                 groups = await get_all_groups(panel_data)
                 for group in groups:
-                    if group.get("id") == int(disabled_group_id):
+                    if disabled_group_id and group.get("id") == int(disabled_group_id):
                         disabled_group_name = group.get("name", "Unknown")
-                        break
+                    if fallback_group_id and group.get("id") == int(fallback_group_id):
+                        fallback_group_name = group.get("name", "Unknown")
             except Exception:
                 pass
         
@@ -593,8 +599,9 @@ async def callback_query_handler(update: Update, context: ContextTypes.DEFAULT_T
             text="🚫 <b>Disable Method</b>\n\n"
                  "Choose how users should be disabled:\n\n"
                  "• <b>By Status</b>: Set user status to 'disabled'\n"
-                 "• <b>By Group</b>: Move user to a disabled group",
-            reply_markup=create_disable_method_keyboard(current_method, disabled_group_name),
+                 "• <b>By Group</b>: Move user to a disabled group\n"
+                 "• <b>Fallback Group</b>: Default group for re-enabled users",
+            reply_markup=create_disable_method_keyboard(current_method, disabled_group_name, fallback_group_name),
             parse_mode="HTML"
         )
         return
@@ -605,7 +612,8 @@ async def callback_query_handler(update: Update, context: ContextTypes.DEFAULT_T
             text="🚫 <b>Disable Method</b>\n\n"
                  "✅ Method set to <b>By Status</b>\n\n"
                  "• <b>By Status</b>: Set user status to 'disabled'\n"
-                 "• <b>By Group</b>: Move user to a disabled group",
+                 "• <b>By Group</b>: Move user to a disabled group\n"
+                 "• <b>Fallback Group</b>: Default group for re-enabled users",
             reply_markup=create_disable_method_keyboard("status", None),
             parse_mode="HTML"
         )
@@ -619,6 +627,20 @@ async def callback_query_handler(update: Update, context: ContextTypes.DEFAULT_T
     if data.startswith("select_disabled_group:"):
         group_id = int(data.split(":")[1])
         await handle_select_disabled_group_callback(query, context, group_id)
+        return
+    
+    # Fallback group callbacks
+    if data == CallbackData.FALLBACK_GROUP_MENU:
+        await handle_fallback_group_menu_callback(query, context)
+        return
+    
+    if data.startswith("select_fallback_group:"):
+        group_id = int(data.split(":")[1])
+        await handle_select_fallback_group_callback(query, context, group_id)
+        return
+    
+    if data == CallbackData.CLEAR_FALLBACK_GROUP:
+        await handle_clear_fallback_group_callback(query, context)
         return
     
     # User sync callbacks

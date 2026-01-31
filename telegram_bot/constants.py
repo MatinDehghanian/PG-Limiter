@@ -124,6 +124,9 @@ class CallbackData:
     DISABLE_BY_STATUS = "disable_by_status"
     DISABLE_BY_GROUP = "disable_by_group"
     SELECT_DISABLED_GROUP = "select_disabled_group"
+    FALLBACK_GROUP_MENU = "fallback_group_menu"
+    SELECT_FALLBACK_GROUP = "select_fallback_group"
+    CLEAR_FALLBACK_GROUP = "clear_fallback_group"
     
     # Punishment system
     PUNISHMENT_MENU = "punishment_menu"
