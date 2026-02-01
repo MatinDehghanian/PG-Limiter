@@ -31,6 +31,53 @@ USERNAME_LIMIT_PATTERN = re.compile(r'\.(\d+)\.User$')
 # Pattern to match usernames ending with XUser where X is a number (e.g., Bastami22User, MVHHe2User)
 USERNAME_LIMIT_PATTERN_SIMPLE = re.compile(r'(\d+)User$')
 
+# Cache for limit patterns from database
+_limit_patterns_cache: list | None = None
+_limit_patterns_cache_time: float = 0
+
+
+async def get_limit_from_patterns(username: str) -> int | None:
+    """
+    Get IP limit from database patterns (prefix/postfix).
+    
+    Args:
+        username: The username to check
+        
+    Returns:
+        The IP limit if pattern matches, None otherwise
+    """
+    global _limit_patterns_cache, _limit_patterns_cache_time
+    import time
+    
+    # Refresh cache every 60 seconds
+    current_time = time.time()
+    if _limit_patterns_cache is None or (current_time - _limit_patterns_cache_time) > 60:
+        try:
+            from db.database import get_db_session
+            from db.crud import LimitPatternCRUD
+            
+            async with get_db_session() as db:
+                _limit_patterns_cache = await LimitPatternCRUD.get_all(db)
+                _limit_patterns_cache_time = current_time
+        except Exception as e:
+            logger.error(f"Failed to load limit patterns: {e}")
+            _limit_patterns_cache = []
+            return None
+    
+    if not _limit_patterns_cache:
+        return None
+    
+    # Check patterns in order of creation (first match wins)
+    for pattern in _limit_patterns_cache:
+        if pattern.pattern_type == "prefix":
+            if username.startswith(pattern.pattern):
+                return pattern.ip_limit
+        elif pattern.pattern_type == "postfix":
+            if username.endswith(pattern.pattern):
+                return pattern.ip_limit
+    
+    return None
+
 
 def extract_limit_from_username(username: str) -> int | None:
     """
@@ -421,11 +468,17 @@ async def check_ip_used() -> dict:
         is_except = email in except_users
         
         # Auto-set limit from username pattern if user doesn't have a special limit
-        # Example: "test_user(2User)" -> automatically set limit to 2
+        # First check database limit patterns (prefix/postfix), then fallback to regex patterns
         if not has_special_limit and not is_except:
-            username_limit = extract_limit_from_username(email)
+            # Check database limit patterns first (prefix/postfix like texiu_ -> limit 2)
+            username_limit = await get_limit_from_patterns(email)
+            
+            # Fallback to regex-based pattern extraction (e.g., .2.User, 2User)
+            if username_limit is None:
+                username_limit = extract_limit_from_username(email)
+            
             if username_limit is not None:
-                # Auto-set the limit from username pattern
+                # Auto-set the limit from pattern
                 from db.database import get_db
                 from db.crud import UserCRUD
                 try:
@@ -658,6 +711,19 @@ async def check_users_usage(panel_data: PanelType):
                 continue
             
             user_limit_number = int(special_limit.get(user_name, limit_number))
+            
+            # If user doesn't have a special limit, check for pattern-based limits
+            if user_name not in special_limit:
+                # Check database limit patterns first (prefix/postfix)
+                pattern_limit = await get_limit_from_patterns(user_name)
+                if pattern_limit is None:
+                    # Fallback to regex-based pattern extraction
+                    pattern_limit = extract_limit_from_username(user_name)
+                
+                if pattern_limit is not None:
+                    user_limit_number = pattern_limit
+                    # Also save to special_limit cache
+                    special_limit[user_name] = pattern_limit
             
             if len(unique_ips) > user_limit_number:
                 # Get user data and ISP info for this user

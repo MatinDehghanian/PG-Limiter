@@ -190,6 +190,29 @@ from telegram_bot.handlers.admin_filter import (
     handle_admin_filter_mode_callback,
     handle_admin_filter_toggle_admin_callback,
 )
+from telegram_bot.handlers.admin_patterns import (
+    handle_admin_patterns_menu_callback,
+    handle_admin_patterns_list_callback,
+    handle_admin_patterns_add_prefix_callback,
+    handle_admin_patterns_add_postfix_callback,
+    handle_admin_pattern_input,
+    delete_pattern_command,
+    add_prefix_command,
+    add_postfix_command,
+    list_patterns_command,
+)
+from telegram_bot.handlers.limit_patterns import (
+    handle_limit_patterns_menu_callback,
+    handle_limit_patterns_list_callback,
+    handle_limit_patterns_add_prefix_callback,
+    handle_limit_patterns_add_postfix_callback,
+    handle_limit_pattern_input,
+    delete_limit_pattern_command,
+    edit_limit_pattern_command,
+    add_limit_prefix_command,
+    add_limit_postfix_command,
+    list_limit_patterns_command,
+)
 
 # Import utilities
 from telegram_bot.utils import check_admin, add_admin_to_config, add_except_user, handel_special_limit
@@ -908,6 +931,40 @@ async def callback_query_handler(update: Update, context: ContextTypes.DEFAULT_T
         await handle_admin_filter_toggle_admin_callback(query, context, username)
         return
     
+    # Admin patterns callbacks
+    if data == CallbackData.ADMIN_PATTERNS_MENU:
+        await handle_admin_patterns_menu_callback(query, context)
+        return
+    
+    if data == CallbackData.ADMIN_PATTERNS_LIST:
+        await handle_admin_patterns_list_callback(query, context)
+        return
+    
+    if data == CallbackData.ADMIN_PATTERNS_ADD_PREFIX:
+        await handle_admin_patterns_add_prefix_callback(query, context)
+        return
+    
+    if data == CallbackData.ADMIN_PATTERNS_ADD_POSTFIX:
+        await handle_admin_patterns_add_postfix_callback(query, context)
+        return
+    
+    # Limit patterns callbacks
+    if data == CallbackData.LIMIT_PATTERNS_MENU:
+        await handle_limit_patterns_menu_callback(query, context)
+        return
+    
+    if data == CallbackData.LIMIT_PATTERNS_LIST:
+        await handle_limit_patterns_list_callback(query, context)
+        return
+    
+    if data == CallbackData.LIMIT_PATTERNS_ADD_PREFIX:
+        await handle_limit_patterns_add_prefix_callback(query, context)
+        return
+    
+    if data == CallbackData.LIMIT_PATTERNS_ADD_POSTFIX:
+        await handle_limit_patterns_add_postfix_callback(query, context)
+        return
+    
     # CDN mode callbacks
     if data == CallbackData.CDN_MODE_MENU:
         from telegram_bot.handlers.settings import cdn_mode_menu_callback
@@ -1261,6 +1318,16 @@ async def text_message_handler(update: Update, context: ContextTypes.DEFAULT_TYP
         context.user_data["waiting_for"] = None
         return
     
+    # Handle admin pattern input
+    if waiting_for in ("admin_pattern_admin", "admin_pattern_value"):
+        await handle_admin_pattern_input(update, context)
+        return
+    
+    # Handle limit pattern input
+    if waiting_for in ("limit_pattern_value", "limit_pattern_limit"):
+        await handle_limit_pattern_input(update, context)
+        return
+    
     # Reset if no handler found
     context.user_data["waiting_for"] = None
 
@@ -1433,5 +1500,19 @@ application.add_handler(CommandHandler("admin_filter_mode", admin_filter_mode))
 application.add_handler(CommandHandler("admin_filter_set", admin_filter_set))
 application.add_handler(CommandHandler("admin_filter_add", admin_filter_add))
 application.add_handler(CommandHandler("admin_filter_remove", admin_filter_remove))
+
+# Admin patterns (prefix/postfix)
+application.add_handler(CommandHandler("add_prefix", add_prefix_command))
+application.add_handler(CommandHandler("add_postfix", add_postfix_command))
+application.add_handler(CommandHandler("delete_pattern", delete_pattern_command))
+application.add_handler(CommandHandler("list_patterns", list_patterns_command))
+
+# Limit patterns (prefix/postfix for IP limits)
+application.add_handler(CommandHandler("add_limit_prefix", add_limit_prefix_command))
+application.add_handler(CommandHandler("add_limit_postfix", add_limit_postfix_command))
+application.add_handler(CommandHandler("delete_limit_pattern", delete_limit_pattern_command))
+application.add_handler(CommandHandler("edit_limit_pattern", edit_limit_pattern_command))
+application.add_handler(CommandHandler("list_limit_patterns", list_limit_patterns_command))
+
 # Fallback document handler (must be after all ConversationHandlers)
 application.add_handler(MessageHandler(filters.Document.ALL, document_message_handler))

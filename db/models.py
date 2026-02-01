@@ -270,3 +270,71 @@ class IPHistory(Base):
     
     def __repr__(self):
         return f"<IPHistory(username='{self.username}', ip='{self.ip}')>"
+
+
+class AdminPattern(Base):
+    """
+    Admin username patterns (prefixes and postfixes).
+    Used to identify which admin owns a user based on username patterns.
+    
+    Example:
+    - prefix: "2_user_" -> usernames starting with "2_user_" belong to this admin
+    - postfix: "2User" -> usernames ending with "2User" belong to this admin
+    - postfix: ".2.User" -> usernames ending with ".2.User" belong to this admin
+    """
+    __tablename__ = "admin_patterns"
+    
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    admin_username = Column(String(255), nullable=False, index=True)  # Admin who owns users matching this pattern
+    
+    # Pattern type: "prefix" or "postfix"
+    pattern_type = Column(String(50), nullable=False)  # "prefix" or "postfix"
+    pattern = Column(String(255), nullable=False)  # The actual pattern string
+    
+    # Optional description
+    description = Column(Text, nullable=True)
+    
+    # Timestamps
+    created_at = Column(DateTime, default=datetime.utcnow)
+    
+    __table_args__ = (
+        Index("ix_admin_patterns_admin", "admin_username"),
+        Index("ix_admin_patterns_type", "pattern_type"),
+    )
+    
+    def __repr__(self):
+        return f"<AdminPattern(admin='{self.admin_username}', {self.pattern_type}='{self.pattern}')>"
+
+
+class LimitPattern(Base):
+    """
+    Limit patterns for setting special IP limits based on username patterns.
+    Used to automatically set IP limits for users based on their username prefix/postfix.
+    
+    Example:
+    - prefix: "texiu_" with limit=2 -> users like "texiu_123" get limit of 2
+    - postfix: "_vip" with limit=5 -> users like "john_vip" get limit of 5
+    """
+    __tablename__ = "limit_patterns"
+    
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    
+    # Pattern type: "prefix" or "postfix"
+    pattern_type = Column(String(50), nullable=False)  # "prefix" or "postfix"
+    pattern = Column(String(255), nullable=False)  # The pattern string
+    
+    # The IP limit for users matching this pattern
+    ip_limit = Column(Integer, nullable=False)
+    
+    # Optional description
+    description = Column(Text, nullable=True)
+    
+    # Timestamps
+    created_at = Column(DateTime, default=datetime.utcnow)
+    
+    __table_args__ = (
+        Index("ix_limit_patterns_type", "pattern_type"),
+    )
+    
+    def __repr__(self):
+        return f"<LimitPattern({self.pattern_type}='{self.pattern}', limit={self.ip_limit})>"

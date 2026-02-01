@@ -134,6 +134,18 @@ from telegram_bot.handlers.admin_filter import (
     handle_admin_filter_toggle_admin_callback,
 )
 
+from telegram_bot.handlers.admin_patterns import (
+    handle_admin_patterns_menu_callback,
+    handle_admin_patterns_list_callback,
+    handle_admin_patterns_add_prefix_callback,
+    handle_admin_patterns_add_postfix_callback,
+    handle_admin_pattern_input,
+    delete_pattern_command,
+    add_prefix_command,
+    add_postfix_command,
+    list_patterns_command,
+)
+
 __all__ = [
     # Admin handlers
     "add_admin",
@@ -246,4 +258,14 @@ __all__ = [
     "handle_admin_filter_toggle_callback",
     "handle_admin_filter_mode_callback",
     "handle_admin_filter_toggle_admin_callback",
+    # Admin patterns handlers
+    "handle_admin_patterns_menu_callback",
+    "handle_admin_patterns_list_callback",
+    "handle_admin_patterns_add_prefix_callback",
+    "handle_admin_patterns_add_postfix_callback",
+    "handle_admin_pattern_input",
+    "delete_pattern_command",
+    "add_prefix_command",
+    "add_postfix_command",
+    "list_patterns_command",
 ]

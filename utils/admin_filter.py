@@ -78,7 +78,11 @@ def cache_user_admin(username: str, admin_username: str):
 
 async def get_user_admin(panel_data, username: str) -> Optional[str]:
     """
-    Get the admin (owner) for a user, using database cache first, then memory cache, then API.
+    Get the admin (owner) for a user, using:
+    1. Database cache first (from user sync)
+    2. Admin patterns (prefix/postfix matching)
+    3. Memory cache
+    4. API as last resort
     
     Args:
         panel_data: Panel connection data
@@ -95,6 +99,20 @@ async def get_user_admin(panel_data, username: str) -> Optional[str]:
             return cached_user["owner_username"]
     except Exception:
         pass  # Fall back to other methods
+    
+    # Check admin patterns (prefix/postfix)
+    try:
+        from db.database import get_db_session
+        from db.crud import AdminPatternCRUD
+        
+        async with get_db_session() as db:
+            admin_from_pattern = await AdminPatternCRUD.find_admin_by_username(db, username)
+            if admin_from_pattern:
+                logger.debug(f"Found admin '{admin_from_pattern}' for user '{username}' via pattern")
+                cache_user_admin(username, admin_from_pattern)
+                return admin_from_pattern
+    except Exception as e:
+        logger.debug(f"Pattern check failed for {username}: {e}")
     
     # Check memory cache
     cached = get_cached_user_admin(username)

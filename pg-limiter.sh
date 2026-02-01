@@ -4,7 +4,7 @@ set -e
 # PG-Limiter Management Script
 # https://github.com/MatinDehghanian/PG-Limiter
 
-VERSION="0.9.5"
+VERSION="0.9.6"
 
 # Configuration
 REPO_OWNER="MatinDehghanian"

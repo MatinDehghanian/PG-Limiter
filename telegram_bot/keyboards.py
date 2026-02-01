@@ -45,18 +45,22 @@ def create_settings_menu_keyboard():
             InlineKeyboardButton("👤 Admin Filter", callback_data=CallbackData.ADMIN_FILTER_MENU),
         ],
         [
-            InlineKeyboardButton("🔄 User Sync", callback_data=CallbackData.USER_SYNC_MENU),
+            InlineKeyboardButton("🏷️ Admin Patterns", callback_data=CallbackData.ADMIN_PATTERNS_MENU),
+            InlineKeyboardButton("� Limit Patterns", callback_data=CallbackData.LIMIT_PATTERNS_MENU),
+        ],
+        [
+            InlineKeyboardButton("�🔄 User Sync", callback_data=CallbackData.USER_SYNC_MENU),
+        ],
+        [
             InlineKeyboardButton("📌 Topics", callback_data=CallbackData.TOPICS_MENU),
-        ],
-        [
             InlineKeyboardButton("☁️ CDN Mode", callback_data=CallbackData.CDN_MODE_MENU),
+        ],
+        [
             InlineKeyboardButton("🖥️ Node Settings", callback_data=CallbackData.NODE_SETTINGS_MENU),
+            InlineKeyboardButton("💾 Auto-Backup", callback_data=CallbackData.AUTO_BACKUP_MENU),
         ],
         [
-            InlineKeyboardButton("� Auto-Backup", callback_data=CallbackData.AUTO_BACKUP_MENU),
-        ],
-        [
-            InlineKeyboardButton("�🔙 Back", callback_data=CallbackData.BACK_MAIN),
+            InlineKeyboardButton("🔙 Back", callback_data=CallbackData.BACK_MAIN),
         ],
     ]
     return InlineKeyboardMarkup(keyboard)

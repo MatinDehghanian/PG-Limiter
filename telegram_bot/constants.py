@@ -162,6 +162,23 @@ class CallbackData:
     ADMIN_FILTER_MODE_INCLUDE = "admin_filter_mode_include"
     ADMIN_FILTER_MODE_EXCLUDE = "admin_filter_mode_exclude"
     
+    # Admin patterns (prefix/postfix)
+    ADMIN_PATTERNS_MENU = "admin_patterns_menu"
+    ADMIN_PATTERNS_ADD = "admin_patterns_add"
+    ADMIN_PATTERNS_LIST = "admin_patterns_list"
+    ADMIN_PATTERNS_DELETE = "admin_patterns_delete"
+    ADMIN_PATTERNS_ADD_PREFIX = "admin_patterns_add_prefix"
+    ADMIN_PATTERNS_ADD_POSTFIX = "admin_patterns_add_postfix"
+    
+    # Limit patterns (prefix/postfix for IP limits)
+    LIMIT_PATTERNS_MENU = "limit_patterns_menu"
+    LIMIT_PATTERNS_ADD = "limit_patterns_add"
+    LIMIT_PATTERNS_LIST = "limit_patterns_list"
+    LIMIT_PATTERNS_DELETE = "limit_patterns_delete"
+    LIMIT_PATTERNS_ADD_PREFIX = "limit_patterns_add_prefix"
+    LIMIT_PATTERNS_ADD_POSTFIX = "limit_patterns_add_postfix"
+    LIMIT_PATTERNS_EDIT = "limit_patterns_edit"
+    
     # CDN mode settings
     CDN_MODE_MENU = "cdn_mode_menu"
     CDN_MODE_ADD = "cdn_mode_add"
