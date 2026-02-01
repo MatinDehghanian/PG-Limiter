@@ -53,10 +53,10 @@ async def get_limit_from_patterns(username: str) -> int | None:
     current_time = time.time()
     if _limit_patterns_cache is None or (current_time - _limit_patterns_cache_time) > 60:
         try:
-            from db.database import get_db_session
+            from db.database import get_db
             from db.crud import LimitPatternCRUD
             
-            async with get_db_session() as db:
+            async with get_db() as db:
                 _limit_patterns_cache = await LimitPatternCRUD.get_all(db)
                 _limit_patterns_cache_time = current_time
         except Exception as e:

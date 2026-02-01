@@ -75,10 +75,10 @@ def create_admin_patterns_keyboard():
 async def handle_admin_patterns_menu_callback(query, context: ContextTypes.DEFAULT_TYPE):
     """Handle admin patterns menu callback."""
     try:
-        from db.database import get_db_session
+        from db.database import get_db
         from db.crud import AdminPatternCRUD
         
-        async with get_db_session() as db:
+        async with get_db() as db:
             patterns = await AdminPatternCRUD.get_all(db)
         
         prefix_count = len([p for p in patterns if p.pattern_type == "prefix"])
@@ -110,10 +110,10 @@ async def handle_admin_patterns_menu_callback(query, context: ContextTypes.DEFAU
 async def handle_admin_patterns_list_callback(query, context: ContextTypes.DEFAULT_TYPE):
     """Handle list patterns callback."""
     try:
-        from db.database import get_db_session
+        from db.database import get_db
         from db.crud import AdminPatternCRUD
         
-        async with get_db_session() as db:
+        async with get_db() as db:
             patterns = await AdminPatternCRUD.get_all(db)
         
         if not patterns:
@@ -249,10 +249,10 @@ async def handle_admin_pattern_input(update: Update, context: ContextTypes.DEFAU
         context.user_data["pattern_type"] = None
         
         try:
-            from db.database import get_db_session
+            from db.database import get_db
             from db.crud import AdminPatternCRUD
             
-            async with get_db_session() as db:
+            async with get_db() as db:
                 new_pattern = await AdminPatternCRUD.create(
                     db,
                     admin_username=admin_username,
@@ -301,10 +301,10 @@ async def delete_pattern_command(update: Update, context: ContextTypes.DEFAULT_T
     try:
         pattern_id = int(context.args[0])
         
-        from db.database import get_db_session
+        from db.database import get_db
         from db.crud import AdminPatternCRUD
         
-        async with get_db_session() as db:
+        async with get_db() as db:
             pattern = await AdminPatternCRUD.get_by_id(db, pattern_id)
             if not pattern:
                 await update.message.reply_html(f"❌ Pattern ID {pattern_id} not found.")
@@ -350,10 +350,10 @@ async def add_prefix_command(update: Update, context: ContextTypes.DEFAULT_TYPE)
     prefix = context.args[1]
     
     try:
-        from db.database import get_db_session
+        from db.database import get_db
         from db.crud import AdminPatternCRUD
         
-        async with get_db_session() as db:
+        async with get_db() as db:
             new_pattern = await AdminPatternCRUD.create(
                 db,
                 admin_username=admin_username,
@@ -390,10 +390,10 @@ async def add_postfix_command(update: Update, context: ContextTypes.DEFAULT_TYPE
     postfix = context.args[1]
     
     try:
-        from db.database import get_db_session
+        from db.database import get_db
         from db.crud import AdminPatternCRUD
         
-        async with get_db_session() as db:
+        async with get_db() as db:
             new_pattern = await AdminPatternCRUD.create(
                 db,
                 admin_username=admin_username,
@@ -420,10 +420,10 @@ async def list_patterns_command(update: Update, context: ContextTypes.DEFAULT_TY
         return
     
     try:
-        from db.database import get_db_session
+        from db.database import get_db
         from db.crud import AdminPatternCRUD
         
-        async with get_db_session() as db:
+        async with get_db() as db:
             patterns = await AdminPatternCRUD.get_all(db)
         
         if not patterns:

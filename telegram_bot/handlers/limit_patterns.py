@@ -69,10 +69,10 @@ def create_limit_patterns_keyboard():
 async def handle_limit_patterns_menu_callback(query, context: ContextTypes.DEFAULT_TYPE):
     """Handle limit patterns menu callback."""
     try:
-        from db.database import get_db_session
+        from db.database import get_db
         from db.crud import LimitPatternCRUD
         
-        async with get_db_session() as db:
+        async with get_db() as db:
             patterns = await LimitPatternCRUD.get_all(db)
         
         prefix_count = len([p for p in patterns if p.pattern_type == "prefix"])
@@ -105,10 +105,10 @@ async def handle_limit_patterns_menu_callback(query, context: ContextTypes.DEFAU
 async def handle_limit_patterns_list_callback(query, context: ContextTypes.DEFAULT_TYPE):
     """Handle list patterns callback."""
     try:
-        from db.database import get_db_session
+        from db.database import get_db
         from db.crud import LimitPatternCRUD
         
-        async with get_db_session() as db:
+        async with get_db() as db:
             patterns = await LimitPatternCRUD.get_all(db)
         
         if not patterns:
@@ -264,10 +264,10 @@ async def handle_limit_pattern_input(update: Update, context: ContextTypes.DEFAU
         context.user_data["limit_pattern_type"] = None
         
         try:
-            from db.database import get_db_session
+            from db.database import get_db
             from db.crud import LimitPatternCRUD
             
-            async with get_db_session() as db:
+            async with get_db() as db:
                 new_pattern = await LimitPatternCRUD.create(
                     db,
                     pattern_type=pattern_type,
@@ -316,10 +316,10 @@ async def delete_limit_pattern_command(update: Update, context: ContextTypes.DEF
     try:
         pattern_id = int(context.args[0])
         
-        from db.database import get_db_session
+        from db.database import get_db
         from db.crud import LimitPatternCRUD
         
-        async with get_db_session() as db:
+        async with get_db() as db:
             pattern = await LimitPatternCRUD.get_by_id(db, pattern_id)
             if not pattern:
                 await update.message.reply_html(f"❌ Pattern ID {pattern_id} not found.")
@@ -369,10 +369,10 @@ async def edit_limit_pattern_command(update: Update, context: ContextTypes.DEFAU
             await update.message.reply_html("❌ IP limit must be at least 1.")
             return
         
-        from db.database import get_db_session
+        from db.database import get_db
         from db.crud import LimitPatternCRUD
         
-        async with get_db_session() as db:
+        async with get_db() as db:
             pattern = await LimitPatternCRUD.get_by_id(db, pattern_id)
             if not pattern:
                 await update.message.reply_html(f"❌ Pattern ID {pattern_id} not found.")
@@ -425,10 +425,10 @@ async def add_limit_prefix_command(update: Update, context: ContextTypes.DEFAULT
         return
     
     try:
-        from db.database import get_db_session
+        from db.database import get_db
         from db.crud import LimitPatternCRUD
         
-        async with get_db_session() as db:
+        async with get_db() as db:
             new_pattern = await LimitPatternCRUD.create(
                 db,
                 pattern_type="prefix",
@@ -472,10 +472,10 @@ async def add_limit_postfix_command(update: Update, context: ContextTypes.DEFAUL
         return
     
     try:
-        from db.database import get_db_session
+        from db.database import get_db
         from db.crud import LimitPatternCRUD
         
-        async with get_db_session() as db:
+        async with get_db() as db:
             new_pattern = await LimitPatternCRUD.create(
                 db,
                 pattern_type="postfix",
@@ -502,10 +502,10 @@ async def list_limit_patterns_command(update: Update, context: ContextTypes.DEFA
         return
     
     try:
-        from db.database import get_db_session
+        from db.database import get_db
         from db.crud import LimitPatternCRUD
         
-        async with get_db_session() as db:
+        async with get_db() as db:
             patterns = await LimitPatternCRUD.get_all(db)
         
         if not patterns:
