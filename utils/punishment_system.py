@@ -35,8 +35,8 @@ punishment_logger = get_logger("punishment")
 @dataclass
 class PunishmentStep:
     """Represents a single punishment step"""
-    step_type: str  # "warning" or "disable"
-    duration_minutes: int  # 0 = unlimited/permanent for disable, ignored for warning
+    step_type: str  # "warning", "disable", or "revoke"
+    duration_minutes: int  # 0 = unlimited/permanent for disable, ignored for warning/revoke
     
     def is_warning(self) -> bool:
         """Check if this step is a warning only"""
@@ -46,6 +46,10 @@ class PunishmentStep:
         """Check if this step is an unlimited/permanent disable"""
         return self.step_type == "disable" and self.duration_minutes == 0
     
+    def is_revoke(self) -> bool:
+        """Check if this step revokes the subscription (changes UUID)"""
+        return self.step_type == "revoke"
+    
     def get_duration_seconds(self) -> int:
         """Get duration in seconds"""
         return self.duration_minutes * 60
@@ -54,6 +58,8 @@ class PunishmentStep:
         """Get human-readable text for this step"""
         if self.is_warning():
             return "⚠️ Warning only"
+        if self.is_revoke():
+            return "🔄 Revoke subscription + Disable"
         if self.is_unlimited_disable():
             return "🚫 Unlimited disable"
         # Format duration nicely

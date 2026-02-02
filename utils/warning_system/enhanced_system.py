@@ -326,6 +326,22 @@ class EnhancedWarningSystem:
                         f"⚡ <b>Monitoring skipped</b> - Trust score too low (≤{self.INSTANT_DISABLE_THRESHOLD})",
                         username
                     )
+                elif punishment_result["action"] == "revoked":
+                    revoke_note = "✅ Subscription revoked" if punishment_result.get("revoke_success", False) else "⚠️ Revoke failed"
+                    
+                    await safe_send_disable_notification(
+                        f"🔄 <b>INSTANT REVOKE + DISABLE</b> - {time_str}\n\n"
+                        f"User: <code>{username}</code>\n"
+                        f"Active IPs: <code>{ip_count}</code>\n"
+                        f"{limit_text}"
+                        f"Trust Level: {trust_level} (<code>{warning.trust_score:.0f}</code>)\n"
+                        f"Behavior: <code>{behavior_summary}</code>\n\n"
+                        f"📊 Violation #{punishment_result['violation_count']} (Step {punishment_result['step_index'] + 1})\n"
+                        f"{revoke_note} (UUID changed)\n"
+                        f"Duration: <code>Until manual enable</code>\n"
+                        f"⚡ <b>Monitoring skipped</b> - Trust score too low (≤{self.INSTANT_DISABLE_THRESHOLD})",
+                        username
+                    )
                 
                 warning_logger.info(f"🚫 INSTANT DISABLE: User {username} disabled immediately (trust={warning.trust_score:.0f})")
                 log_monitoring_event("instant_disabled", username, {"trust": warning.trust_score, "duration_min": punishment_result.get("duration_minutes", 0)})
@@ -494,6 +510,27 @@ class EnhancedWarningSystem:
                                 
                                 warning_logger.warning(f"🚫 Disabled user {username}: {device_count} devices (limit: {user_limit_number}) - step {punishment_result['step_index'] + 1}")
                                 log_monitoring_event("user_disabled", username, {"devices": device_count, "limit": user_limit_number, "duration_min": punishment_result.get("duration_minutes", 0)})
+                            elif punishment_result["action"] == "revoked":
+                                disabled_users.add(username)
+                                
+                                revoke_note = "✅ Subscription revoked" if punishment_result.get("revoke_success", False) else "⚠️ Revoke failed"
+                                
+                                await safe_send_disable_notification(
+                                    f"🔄 <b>SUBSCRIPTION REVOKED + DISABLED</b> - {time_str}\n\n"
+                                    f"User: <code>{username}</code>\n"
+                                    f"Confirmed Devices: <code>{device_count}</code> (active 2+ min)\n"
+                                    f"Current IPs: <code>{len(current_ips)}</code>\n"
+                                    f"User limit: <code>{user_limit_number}</code>\n"
+                                    f"Trust Level: {trust_level} (<code>{trust_score:.0f}</code>)\n\n"
+                                    f"📊 Violation #{punishment_result['violation_count']} (Step {punishment_result['step_index'] + 1})\n"
+                                    f"{revoke_note} (UUID changed)\n"
+                                    f"Duration: <code>Until manual enable</code>\n"
+                                    f"📊 IP Activity:\n<code>{activity_summary}</code>",
+                                    username
+                                )
+                                
+                                warning_logger.warning(f"🔄 Revoked + disabled user {username}: {device_count} devices (limit: {user_limit_number}) - step {punishment_result['step_index'] + 1}")
+                                log_monitoring_event("user_revoked", username, {"devices": device_count, "limit": user_limit_number, "revoke_success": punishment_result.get("revoke_success", False)})
                             else:
                                 warning_logger.error(f"Punishment action error for {username}: {punishment_result['message']}")
                             

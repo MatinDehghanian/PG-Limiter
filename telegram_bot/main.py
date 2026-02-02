@@ -861,6 +861,11 @@ async def callback_query_handler(update: Update, context: ContextTypes.DEFAULT_T
         await punishment_add_step(update, context, "disable", 0)
         return
     
+    if data == CallbackData.PUNISHMENT_STEP_REVOKE:
+        from telegram_bot.handlers.punishment import punishment_add_step
+        await punishment_add_step(update, context, "revoke", 0)
+        return
+    
     # Handle remove step callbacks
     if data.startswith("punishment_remove_step:"):
         step_index = int(data.split(":")[1])

@@ -147,6 +147,7 @@ class CallbackData:
     PUNISHMENT_STEP_DISABLE_60 = "punishment_step_disable_60"
     PUNISHMENT_STEP_DISABLE_240 = "punishment_step_disable_240"
     PUNISHMENT_STEP_DISABLE_UNLIMITED = "punishment_step_disable_unlimited"
+    PUNISHMENT_STEP_REVOKE = "punishment_step_revoke"
     PUNISHMENT_STEPS_RESET = "punishment_steps_reset"
     PUNISHMENT_BACK = "punishment_back"
     

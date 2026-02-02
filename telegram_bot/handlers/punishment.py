@@ -83,6 +83,8 @@ def create_steps_menu_keyboard(steps: list):
         
         if step_type == "warning":
             text = f"{i+1}. ⚠️ Warning"
+        elif step_type == "revoke":
+            text = f"{i+1}. 🔄 Revoke + Disable"
         elif duration == 0:
             text = f"{i+1}. 🚫 Unlimited"
         else:
@@ -119,6 +121,7 @@ def create_add_step_keyboard():
             InlineKeyboardButton("🔒 240m", callback_data=CallbackData.PUNISHMENT_STEP_DISABLE_240),
         ],
         [InlineKeyboardButton("🚫 Unlimited", callback_data=CallbackData.PUNISHMENT_STEP_DISABLE_UNLIMITED)],
+        [InlineKeyboardButton("🔄 Revoke Sub + Disable", callback_data=CallbackData.PUNISHMENT_STEP_REVOKE)],
         [InlineKeyboardButton("« Back", callback_data=CallbackData.PUNISHMENT_STEPS)],
     ]
     return InlineKeyboardMarkup(keyboard)
@@ -133,6 +136,8 @@ def create_edit_step_keyboard(step_index: int, step: dict):
     current_text = ""
     if step_type == "warning":
         current_text = "Current: ⚠️ Warning"
+    elif step_type == "revoke":
+        current_text = "Current: 🔄 Revoke + Disable"
     elif duration == 0:
         current_text = "Current: 🚫 Unlimited"
     else:
@@ -169,6 +174,11 @@ def create_edit_step_keyboard(step_index: int, step: dict):
         [InlineKeyboardButton(
             "✅ 🚫 Unlimited" if (step_type == "disable" and duration == 0) else "🚫 Unlimited",
             callback_data=f"punishment_update_step:{step_index}:disable:0"
+        )],
+        # Revoke subscription option
+        [InlineKeyboardButton(
+            "✅ 🔄 Revoke Sub + Disable" if step_type == "revoke" else "🔄 Revoke Sub + Disable",
+            callback_data=f"punishment_update_step:{step_index}:revoke:0"
         )],
         # Delete this step
         [InlineKeyboardButton("🗑️ Delete This Step", callback_data=f"punishment_remove_step:{step_index}")],
@@ -337,7 +347,8 @@ async def punishment_add_step_menu(update: Update, context: ContextTypes.DEFAULT
         "Select the type of punishment to add:\n\n"
         "• <b>Warning</b> - Just send warning, no disable\n"
         "• <b>Timed disable</b> - Disable for set duration\n"
-        "• <b>Unlimited</b> - Disable until manual enable"
+        "• <b>Unlimited</b> - Disable until manual enable\n"
+        "• <b>Revoke + Disable</b> - Revoke subscription (changes UUID) and permanently disable"
     )
     
     await _send_response(update, message, create_add_step_keyboard())
@@ -433,6 +444,8 @@ async def punishment_edit_step(update: Update, context: ContextTypes.DEFAULT_TYP
             # Show current value description
             if step_type == "warning":
                 current_desc = "⚠️ Warning (no disable)"
+            elif step_type == "revoke":
+                current_desc = "🔄 Revoke subscription + Permanent disable"
             elif duration == 0:
                 current_desc = "🚫 Unlimited disable"
             else:

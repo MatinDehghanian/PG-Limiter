@@ -90,7 +90,7 @@ class DisabledUsers:
             }, file, indent=2)
         logger.info(f"Saved {len(self.disabled_users)} disabled users to {self.filename}")
 
-    async def add_user(self, username: str, duration_seconds: int = 0):
+    async def add_user(self, username: str, duration_seconds: int = 0, permanent: bool = False):
         """
         Adds a user to the set of disabled users with current timestamp
         and saves the updated data to the JSON file.
@@ -99,6 +99,8 @@ class DisabledUsers:
             username: The username to disable
             duration_seconds: Optional custom duration in seconds. 
                               0 means use default time_to_active_users from config.
+                              Ignored if permanent=True.
+            permanent: If True, user will never be auto-enabled (until manual enable).
         """
         global DISABLED_USERS, DISABLED_USERS_TIMESTAMPS, DISABLED_USERS_ENABLE_AT
         current_time = time.time()
@@ -106,8 +108,14 @@ class DisabledUsers:
         DISABLED_USERS_TIMESTAMPS[username] = current_time
         self.disabled_users[username] = current_time
         
-        # Set custom enable time if duration specified
-        if duration_seconds > 0:
+        if permanent:
+            # Use -1 as sentinel value for permanent disable (never auto-enable)
+            self.enable_at[username] = -1
+            DISABLED_USERS_ENABLE_AT[username] = -1
+            logger.info(f"User {username} disabled permanently at {time.strftime('%H:%M:%S', time.localtime(current_time))}, "
+                       f"will NOT be auto-enabled (manual only)")
+        elif duration_seconds > 0:
+            # Set custom enable time if duration specified
             enable_at = current_time + duration_seconds
             self.enable_at[username] = enable_at
             DISABLED_USERS_ENABLE_AT[username] = enable_at
@@ -168,6 +176,10 @@ class DisabledUsers:
             # Check if user has custom enable time
             if username in self.enable_at:
                 enable_at = self.enable_at[username]
+                # -1 means permanent disable - never auto-enable
+                if enable_at == -1:
+                    logger.debug(f"User {username} is permanently disabled (manual enable only)")
+                    continue
                 if current_time >= enable_at:
                     users_to_enable.append(username)
                     logger.info(f"User {username} ready to enable (custom timer expired)")
@@ -195,7 +207,7 @@ class DisabledUsers:
             default_time_to_active: Default time in seconds
             
         Returns:
-            Remaining seconds, 0 if ready to enable, -1 if not disabled
+            Remaining seconds, 0 if ready to enable, -1 if not disabled, -2 if permanent
         """
         if username not in self.disabled_users:
             return -1
@@ -205,6 +217,9 @@ class DisabledUsers:
         
         if username in self.enable_at:
             enable_at = self.enable_at[username]
+            # -1 means permanent disable
+            if enable_at == -1:
+                return -2  # Special code for permanent
             remaining = enable_at - current_time
         else:
             elapsed = current_time - disabled_time

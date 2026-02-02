@@ -959,6 +959,58 @@ async def enable_selected_users(
     return {"enabled": enabled_users, "failed": failed_users, "not_found": not_found_users}
 
 
+async def revoke_user_subscription(panel_data: PanelType, username: str) -> bool:
+    """
+    Revoke a user's subscription (subscription link and proxies).
+    This will regenerate the vless/vmess UUID and subscription URL.
+
+    Args:
+        panel_data (PanelType): Panel connection data.
+        username (str): The username whose subscription to revoke.
+
+    Returns:
+        bool: True if successful, False otherwise.
+    """
+    from utils.panel_api.request_helper import panel_post
+    
+    users_logger.info(f"🔄 Revoking subscription for user: {username}")
+    max_attempts = 3
+    
+    for attempt in range(max_attempts):
+        force_refresh = attempt > 0
+        
+        response = await panel_post(
+            panel_data,
+            f"/api/user/{username}/revoke_sub",
+            json_data={},
+            force_refresh=force_refresh,
+            timeout=10.0,
+            max_retries=2
+        )
+        
+        if response is not None:
+            if response.status_code in (200, 201):
+                log_user_action("REVOKE_SUB", username, "subscription revoked", success=True)
+                users_logger.info(f"🔄 Revoked subscription for user: {username}")
+                return True
+            elif response.status_code == 401:
+                await invalidate_token_cache()
+                users_logger.warning("Got 401 error, retrying...")
+                continue
+            elif response.status_code == 404:
+                log_user_action("REVOKE_SUB", username, "User not found", success=False)
+                users_logger.warning(f"User {username} not found in panel")
+                return False
+            else:
+                users_logger.error(f"Failed to revoke subscription: {response.status_code}")
+                continue
+        
+        wait_time = min(30, random.randint(2, 5) * (attempt + 1))
+        await asyncio.sleep(wait_time)
+    
+    log_user_action("REVOKE_SUB", username, "Failed after retries", success=False)
+    return False
+
 async def disable_user_by_status(panel_data: PanelType, username: str) -> bool:
     """
     Disable a user by changing their status to 'disabled'.
@@ -1113,7 +1165,7 @@ async def disable_user_by_group(panel_data: PanelType, username: str, disabled_g
         return False
 
 
-async def disable_user(panel_data: PanelType, username: UserType, duration_seconds: int = 0) -> None | ValueError:
+async def disable_user(panel_data: PanelType, username: UserType, duration_seconds: int = 0, permanent: bool = False) -> None | ValueError:
     """
     Disable a user on the panel.
     Uses either status-based or group-based disabling depending on config.
@@ -1123,6 +1175,7 @@ async def disable_user(panel_data: PanelType, username: UserType, duration_secon
         the username, password, and domain for the panel API.
         username (user): The username of the user to disable.
         duration_seconds (int): Optional custom disable duration in seconds.
+        permanent (bool): If True, user will never be auto-enabled (manual only).
 
     Returns:
         None
@@ -1130,7 +1183,7 @@ async def disable_user(panel_data: PanelType, username: UserType, duration_secon
     Raises:
         ValueError: If the function fails to disable the user.
     """
-    users_logger.info(f"🚫 Disabling user: {username.name} (duration={duration_seconds}s)")
+    users_logger.info(f"🚫 Disabling user: {username.name} (duration={duration_seconds}s, permanent={permanent})")
     
     user_exists = await check_user_exists(panel_data, username.name)
     if not user_exists:
@@ -1160,8 +1213,8 @@ async def disable_user(panel_data: PanelType, username: UserType, duration_secon
     
     if success:
         dis_obj = DisabledUsers()
-        await dis_obj.add_user(username.name, duration_seconds)
-        users_logger.info(f"🚫 User {username.name} added to disabled users list")
+        await dis_obj.add_user(username.name, duration_seconds, permanent=permanent)
+        users_logger.info(f"🚫 User {username.name} added to disabled users list (permanent={permanent})")
         return None
     
     message = f"Failed to disable user: {username.name}"
@@ -1239,13 +1292,50 @@ async def disable_user_with_punishment(panel_data: PanelType, username: UserType
             "message": message
         }
     
+    # Handle revoke punishment type - revoke subscription and permanently disable
+    if punishment.is_revoke():
+        try:
+            # First revoke the subscription (changes UUID)
+            revoke_success = await revoke_user_subscription(panel_data, username.name)
+            if revoke_success:
+                users_logger.info(f"🔄 Revoked subscription for {username.name}")
+            else:
+                users_logger.warning(f"⚠️ Failed to revoke subscription for {username.name}, continuing with disable")
+            
+            # Then permanently disable the user
+            await disable_user(panel_data, username, 0, permanent=True)
+            await record_user_violation(username.name, step_index, 0)
+            
+            revoke_note = "✅ subscription revoked" if revoke_success else "⚠️ revoke failed"
+            message = f"🔄 User {username.name} subscription revoked + disabled permanently ({revoke_note}) (violation #{violation_count + 1})"
+            users_logger.info(f"🔄 Revoke + permanent disable for {username.name} (violation #{violation_count + 1})")
+            
+            return {
+                "action": "revoked",
+                "step_index": step_index,
+                "violation_count": violation_count + 1,
+                "duration_minutes": 0,
+                "revoke_success": revoke_success,
+                "message": message
+            }
+        except ValueError as e:
+            users_logger.error(f"⚖️ Revoke punishment failed for {username.name}: {e}")
+            return {
+                "action": "error",
+                "step_index": step_index,
+                "violation_count": violation_count,
+                "duration_minutes": 0,
+                "message": str(e)
+            }
+    
     duration_seconds = punishment.get_duration_seconds()
+    is_permanent = punishment.is_unlimited_disable()
     
     try:
-        await disable_user(panel_data, username, duration_seconds)
+        await disable_user(panel_data, username, duration_seconds, permanent=is_permanent)
         await record_user_violation(username.name, step_index, punishment.duration_minutes)
         
-        if punishment.is_unlimited_disable():
+        if is_permanent:
             message = f"🚫 User {username.name} disabled permanently (violation #{violation_count + 1})"
             users_logger.info(f"🚫 Permanent disable for {username.name} (violation #{violation_count + 1})")
         else:

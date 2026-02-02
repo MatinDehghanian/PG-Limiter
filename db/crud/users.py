@@ -462,6 +462,10 @@ class UserCRUD:
         users_to_enable = []
         for user in disabled_users:
             if user.enable_at is not None:
+                # -1 means permanent disable - never auto-enable
+                if user.enable_at == -1:
+                    db_users_logger.debug(f"User {user.username} is permanently disabled (manual enable only)")
+                    continue
                 # User has specific enable time
                 if current_time >= user.enable_at:
                     users_to_enable.append(user.username)
