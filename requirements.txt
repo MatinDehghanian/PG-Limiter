@@ -1,5 +1,5 @@
 httpx==0.27.2
-python-telegram-bot[job-queue]==21.10
+python-telegram-bot[job-queue]==22.6
 aiohttp<=4
 ipinfo==5.1.1
 requests
