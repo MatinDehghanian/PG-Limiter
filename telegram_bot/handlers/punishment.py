@@ -3,6 +3,8 @@ Punishment system handlers for the Telegram bot.
 Includes functions for managing the smart punishment system.
 """
 
+import json
+
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
     ContextTypes,
@@ -10,9 +12,29 @@ from telegram.ext import (
 )
 
 from telegram_bot.handlers.admin import check_admin_privilege
-from telegram_bot.utils import write_json_file
 from telegram_bot.constants import CallbackData
-from utils.read_config import read_config
+from utils.read_config import read_config, invalidate_config_cache
+
+
+async def _save_punishment_setting(key: str, value) -> bool:
+    """Save a punishment setting to the database."""
+    try:
+        from db.database import get_db
+        from db.crud import ConfigCRUD
+        
+        async with get_db() as db:
+            await ConfigCRUD.set(db, key, value)
+            await db.commit()
+        await invalidate_config_cache()
+        return True
+    except Exception as e:
+        print(f"Error saving punishment setting {key}: {e}")
+        return False
+
+
+async def _save_punishment_steps(steps: list) -> bool:
+    """Save punishment steps to the database as JSON."""
+    return await _save_punishment_setting("punishment_steps", json.dumps(steps))
 
 
 async def _send_response(update: Update, text: str, reply_markup=None):
@@ -233,14 +255,10 @@ async def punishment_toggle(update: Update, _context: ContextTypes.DEFAULT_TYPE)
 
     try:
         config_data = await read_config()
+        current_state = config_data.get("punishment", {}).get("enabled", True)
+        new_state = not current_state
 
-        if "punishment" not in config_data:
-            config_data["punishment"] = {"enabled": True, "window_hours": 72, "steps": []}
-
-        current_state = config_data["punishment"].get("enabled", True)
-        config_data["punishment"]["enabled"] = not current_state
-
-        await write_json_file(config_data)
+        await _save_punishment_setting("punishment_enabled", str(new_state).lower())
 
         # Return to punishment menu with updated status
         await punishment_status(update, _context)
@@ -283,14 +301,7 @@ async def punishment_set_window_hours(update: Update, context: ContextTypes.DEFA
         return check
 
     try:
-        config_data = await read_config()
-        
-        if "punishment" not in config_data:
-            config_data["punishment"] = {"enabled": True, "window_hours": hours, "steps": []}
-        else:
-            config_data["punishment"]["window_hours"] = hours
-
-        await write_json_file(config_data)
+        await _save_punishment_setting("punishment_window_hours", str(hours))
         
         # Return to punishment menu
         await punishment_status(update, context)
@@ -363,20 +374,14 @@ async def punishment_add_step(update: Update, context: ContextTypes.DEFAULT_TYPE
 
     try:
         config_data = await read_config()
-        
-        if "punishment" not in config_data:
-            config_data["punishment"] = {"enabled": True, "window_hours": 72, "steps": []}
-        
-        steps = config_data["punishment"].get("steps", [])
+        steps = config_data.get("punishment", {}).get("steps", [])
         if not steps:
-            # Initialize with empty list
             steps = []
         
         # Add new step
         steps.append({"type": step_type, "duration": duration})
-        config_data["punishment"]["steps"] = steps
         
-        await write_json_file(config_data)
+        await _save_punishment_steps(steps)
         
         # Return to steps menu
         await punishment_set_steps(update, context)
@@ -399,13 +404,7 @@ async def punishment_remove_step(update: Update, context: ContextTypes.DEFAULT_T
         
         if 0 <= step_index < len(steps):
             steps.pop(step_index)
-            
-            if "punishment" not in config_data:
-                config_data["punishment"] = {"enabled": True, "window_hours": 72, "steps": steps}
-            else:
-                config_data["punishment"]["steps"] = steps
-            
-            await write_json_file(config_data)
+            await _save_punishment_steps(steps)
         
         # Return to steps menu
         await punishment_set_steps(update, context)
@@ -475,11 +474,7 @@ async def punishment_update_step(update: Update, context: ContextTypes.DEFAULT_T
 
     try:
         config_data = await read_config()
-        
-        if "punishment" not in config_data:
-            config_data["punishment"] = {"enabled": True, "window_hours": 72, "steps": []}
-        
-        steps = config_data["punishment"].get("steps", [])
+        steps = config_data.get("punishment", {}).get("steps", [])
         
         # Use default steps if none are configured
         if not steps:
@@ -493,8 +488,7 @@ async def punishment_update_step(update: Update, context: ContextTypes.DEFAULT_T
         
         if 0 <= step_index < len(steps):
             steps[step_index] = {"type": step_type, "duration": duration}
-            config_data["punishment"]["steps"] = steps
-            await write_json_file(config_data)
+            await _save_punishment_steps(steps)
         
         # Return to steps menu
         await punishment_set_steps(update, context)
@@ -512,8 +506,6 @@ async def punishment_reset_steps(update: Update, context: ContextTypes.DEFAULT_T
         return check
 
     try:
-        config_data = await read_config()
-        
         default_steps = [
             {"type": "warning", "duration": 0},
             {"type": "disable", "duration": 10},
@@ -522,12 +514,7 @@ async def punishment_reset_steps(update: Update, context: ContextTypes.DEFAULT_T
             {"type": "disable", "duration": 0}
         ]
         
-        if "punishment" not in config_data:
-            config_data["punishment"] = {"enabled": True, "window_hours": 72, "steps": default_steps}
-        else:
-            config_data["punishment"]["steps"] = default_steps
-        
-        await write_json_file(config_data)
+        await _save_punishment_steps(default_steps)
         
         # Return to steps menu
         await punishment_set_steps(update, context)

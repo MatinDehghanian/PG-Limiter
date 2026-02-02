@@ -237,7 +237,16 @@ async def read_config(check_required_elements: bool = False) -> Dict[str, Any]:
     config["punishment"] = {
         "enabled": db_config.get("punishment_enabled", "true").lower() == "true",
         "window_hours": int(db_config.get("punishment_window_hours", "168")),
+        "steps": [],
     }
+    # Load punishment steps from DB (stored as JSON string)
+    punishment_steps_str = db_config.get("punishment_steps", "")
+    if punishment_steps_str:
+        try:
+            import json
+            config["punishment"]["steps"] = json.loads(punishment_steps_str)
+        except (json.JSONDecodeError, ValueError):
+            pass
     
     # Group filter settings
     config["group_filter"] = {
