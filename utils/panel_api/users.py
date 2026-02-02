@@ -1011,6 +1011,74 @@ async def revoke_user_subscription(panel_data: PanelType, username: str) -> bool
     log_user_action("REVOKE_SUB", username, "Failed after retries", success=False)
     return False
 
+
+async def reset_user_uuid(panel_data: PanelType, username: str) -> bool:
+    """
+    Reset/change a user's vless and vmess UUID.
+    This generates new UUIDs and updates the user's proxy settings.
+
+    Args:
+        panel_data (PanelType): Panel connection data.
+        username (str): The username whose UUID to reset.
+
+    Returns:
+        bool: True if successful, False otherwise.
+    """
+    import uuid
+    from utils.panel_api.request_helper import panel_put
+    
+    users_logger.info(f"🔑 Resetting UUID for user: {username}")
+    
+    # Generate new UUIDs
+    new_vless_uuid = str(uuid.uuid4())
+    new_vmess_uuid = str(uuid.uuid4())
+    
+    max_attempts = 3
+    
+    for attempt in range(max_attempts):
+        force_refresh = attempt > 0
+        
+        # Build proxy_settings payload with new UUIDs
+        payload = {
+            "proxy_settings": {
+                "vless": {"id": new_vless_uuid},
+                "vmess": {"id": new_vmess_uuid}
+            }
+        }
+        
+        response = await panel_put(
+            panel_data,
+            f"/api/user/{username}",
+            json_data=payload,
+            force_refresh=force_refresh,
+            timeout=10.0,
+            max_retries=2
+        )
+        
+        if response is not None:
+            if response.status_code in (200, 201):
+                log_user_action("RESET_UUID", username, f"vless={new_vless_uuid[:8]}..., vmess={new_vmess_uuid[:8]}...", success=True)
+                users_logger.info(f"🔑 Reset UUID for user {username}: vless={new_vless_uuid[:8]}..., vmess={new_vmess_uuid[:8]}...")
+                return True
+            elif response.status_code == 401:
+                await invalidate_token_cache()
+                users_logger.warning("Got 401 error, retrying...")
+                continue
+            elif response.status_code == 404:
+                log_user_action("RESET_UUID", username, "User not found", success=False)
+                users_logger.warning(f"User {username} not found in panel")
+                return False
+            else:
+                users_logger.error(f"Failed to reset UUID: {response.status_code} - {response.text}")
+                continue
+        
+        wait_time = min(30, random.randint(2, 5) * (attempt + 1))
+        await asyncio.sleep(wait_time)
+    
+    log_user_action("RESET_UUID", username, "Failed after retries", success=False)
+    return False
+
+
 async def disable_user_by_status(panel_data: PanelType, username: str) -> bool:
     """
     Disable a user by changing their status to 'disabled'.
@@ -1295,20 +1363,38 @@ async def disable_user_with_punishment(panel_data: PanelType, username: UserType
     # Handle revoke punishment type - revoke subscription and permanently disable
     if punishment.is_revoke():
         try:
-            # First revoke the subscription (changes UUID)
+            # First revoke the subscription (changes subscription URL)
             revoke_success = await revoke_user_subscription(panel_data, username.name)
             if revoke_success:
                 users_logger.info(f"🔄 Revoked subscription for {username.name}")
             else:
-                users_logger.warning(f"⚠️ Failed to revoke subscription for {username.name}, continuing with disable")
+                users_logger.warning(f"⚠️ Failed to revoke subscription for {username.name}")
+            
+            # Also reset the UUID directly (changes vless/vmess UUID)
+            uuid_reset_success = await reset_user_uuid(panel_data, username.name)
+            if uuid_reset_success:
+                users_logger.info(f"🔑 Reset UUID for {username.name}")
+            else:
+                users_logger.warning(f"⚠️ Failed to reset UUID for {username.name}")
             
             # Then permanently disable the user
             await disable_user(panel_data, username, 0, permanent=True)
             await record_user_violation(username.name, step_index, 0)
             
-            revoke_note = "✅ subscription revoked" if revoke_success else "⚠️ revoke failed"
-            message = f"🔄 User {username.name} subscription revoked + disabled permanently ({revoke_note}) (violation #{violation_count + 1})"
-            users_logger.info(f"🔄 Revoke + permanent disable for {username.name} (violation #{violation_count + 1})")
+            # Build status message
+            status_parts = []
+            if revoke_success:
+                status_parts.append("✅ sub revoked")
+            else:
+                status_parts.append("⚠️ sub revoke failed")
+            if uuid_reset_success:
+                status_parts.append("✅ UUID reset")
+            else:
+                status_parts.append("⚠️ UUID reset failed")
+            
+            revoke_note = ", ".join(status_parts)
+            message = f"🔄 User {username.name} subscription revoked + UUID reset + disabled permanently ({revoke_note}) (violation #{violation_count + 1})"
+            users_logger.info(f"🔄 Revoke + UUID reset + permanent disable for {username.name} (violation #{violation_count + 1})")
             
             return {
                 "action": "revoked",
@@ -1316,6 +1402,7 @@ async def disable_user_with_punishment(panel_data: PanelType, username: UserType
                 "violation_count": violation_count + 1,
                 "duration_minutes": 0,
                 "revoke_success": revoke_success,
+                "uuid_reset_success": uuid_reset_success,
                 "message": message
             }
         except ValueError as e:

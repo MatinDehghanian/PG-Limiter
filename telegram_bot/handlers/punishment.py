@@ -348,7 +348,7 @@ async def punishment_add_step_menu(update: Update, context: ContextTypes.DEFAULT
         "• <b>Warning</b> - Just send warning, no disable\n"
         "• <b>Timed disable</b> - Disable for set duration\n"
         "• <b>Unlimited</b> - Disable until manual enable\n"
-        "• <b>Revoke + Disable</b> - Revoke subscription (changes UUID) and permanently disable"
+        "• <b>Revoke + Disable</b> - Revoke subscription, reset vless/vmess UUID, and permanently disable"
     )
     
     await _send_response(update, message, create_add_step_keyboard())

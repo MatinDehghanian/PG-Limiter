@@ -327,7 +327,8 @@ class EnhancedWarningSystem:
                         username
                     )
                 elif punishment_result["action"] == "revoked":
-                    revoke_note = "✅ Subscription revoked" if punishment_result.get("revoke_success", False) else "⚠️ Revoke failed"
+                    revoke_note = "✅ Sub revoked" if punishment_result.get("revoke_success", False) else "⚠️ Revoke failed"
+                    uuid_note = "✅ UUID reset" if punishment_result.get("uuid_reset_success", False) else "⚠️ UUID failed"
                     
                     await safe_send_disable_notification(
                         f"🔄 <b>INSTANT REVOKE + DISABLE</b> - {time_str}\n\n"
@@ -337,7 +338,7 @@ class EnhancedWarningSystem:
                         f"Trust Level: {trust_level} (<code>{warning.trust_score:.0f}</code>)\n"
                         f"Behavior: <code>{behavior_summary}</code>\n\n"
                         f"📊 Violation #{punishment_result['violation_count']} (Step {punishment_result['step_index'] + 1})\n"
-                        f"{revoke_note} (UUID changed)\n"
+                        f"{revoke_note}, {uuid_note}\n"
                         f"Duration: <code>Until manual enable</code>\n"
                         f"⚡ <b>Monitoring skipped</b> - Trust score too low (≤{self.INSTANT_DISABLE_THRESHOLD})",
                         username
@@ -513,7 +514,8 @@ class EnhancedWarningSystem:
                             elif punishment_result["action"] == "revoked":
                                 disabled_users.add(username)
                                 
-                                revoke_note = "✅ Subscription revoked" if punishment_result.get("revoke_success", False) else "⚠️ Revoke failed"
+                                revoke_note = "✅ Sub revoked" if punishment_result.get("revoke_success", False) else "⚠️ Revoke failed"
+                                uuid_note = "✅ UUID reset" if punishment_result.get("uuid_reset_success", False) else "⚠️ UUID failed"
                                 
                                 await safe_send_disable_notification(
                                     f"🔄 <b>SUBSCRIPTION REVOKED + DISABLED</b> - {time_str}\n\n"
@@ -523,7 +525,7 @@ class EnhancedWarningSystem:
                                     f"User limit: <code>{user_limit_number}</code>\n"
                                     f"Trust Level: {trust_level} (<code>{trust_score:.0f}</code>)\n\n"
                                     f"📊 Violation #{punishment_result['violation_count']} (Step {punishment_result['step_index'] + 1})\n"
-                                    f"{revoke_note} (UUID changed)\n"
+                                    f"{revoke_note}, {uuid_note}\n"
                                     f"Duration: <code>Until manual enable</code>\n"
                                     f"📊 IP Activity:\n<code>{activity_summary}</code>",
                                     username
