@@ -970,6 +970,29 @@ async def callback_query_handler(update: Update, context: ContextTypes.DEFAULT_T
         await handle_limit_patterns_add_postfix_callback(query, context)
         return
     
+    # Subnet IP Grouping callback
+    if data == CallbackData.SUBNET_IP_GROUPING_TOGGLE:
+        from telegram_bot.handlers.settings import subnet_ip_grouping_toggle_callback
+        await subnet_ip_grouping_toggle_callback(query, context)
+        return
+    
+    # High Trust IP Grouping callback
+    if data == CallbackData.HIGH_TRUST_IP_GROUPING_TOGGLE:
+        from telegram_bot.handlers.settings import high_trust_ip_grouping_toggle_callback
+        await high_trust_ip_grouping_toggle_callback(query, context)
+        return
+    
+    # Trust Reset callbacks
+    if data == CallbackData.TRUST_RESET_MENU:
+        from telegram_bot.handlers.settings import trust_reset_menu_callback
+        await trust_reset_menu_callback(query, context)
+        return
+    
+    if data == CallbackData.TRUST_RESET_ALL:
+        from telegram_bot.handlers.settings import trust_reset_all_callback
+        await trust_reset_all_callback(query, context)
+        return
+    
     # CDN mode callbacks
     if data == CallbackData.CDN_MODE_MENU:
         from telegram_bot.handlers.settings import cdn_mode_menu_callback

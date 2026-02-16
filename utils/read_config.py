@@ -302,6 +302,21 @@ async def read_config(check_required_elements: bool = False) -> Dict[str, Any]:
         except ValueError:
             pass
     
+    # Subnet IP Grouping - relaxed mode where IPs in the same /24 subnet
+    # that use the same node AND inbound are counted as a single device
+    config["subnet_ip_grouping"] = db_config.get("subnet_ip_grouping", "false").lower() == "true"
+    
+    # High Trust IP Grouping - for users with high trust score, multiple IPs
+    # using the SAME node AND inbound are counted as one device
+    # (detects WiFi/Mobile switching on same device)
+    config["high_trust_ip_grouping"] = db_config.get("high_trust_ip_grouping", "false").lower() == "true"
+    
+    # Minimum trust score required for high_trust_ip_grouping to apply
+    try:
+        config["high_trust_threshold"] = int(db_config.get("high_trust_threshold", "20"))
+    except (ValueError, TypeError):
+        config["high_trust_threshold"] = 20
+    
     # Disabled nodes - list of node IDs to exclude from monitoring
     # Connections from these nodes are completely ignored
     config["disabled_nodes"] = []

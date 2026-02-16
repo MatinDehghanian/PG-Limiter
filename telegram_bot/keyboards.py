@@ -46,10 +46,15 @@ def create_settings_menu_keyboard():
         ],
         [
             InlineKeyboardButton("🏷️ Admin Patterns", callback_data=CallbackData.ADMIN_PATTERNS_MENU),
-            InlineKeyboardButton("� Limit Patterns", callback_data=CallbackData.LIMIT_PATTERNS_MENU),
+            InlineKeyboardButton("🔢 Limit Patterns", callback_data=CallbackData.LIMIT_PATTERNS_MENU),
         ],
         [
-            InlineKeyboardButton("�🔄 User Sync", callback_data=CallbackData.USER_SYNC_MENU),
+            InlineKeyboardButton("🔄 User Sync", callback_data=CallbackData.USER_SYNC_MENU),
+            InlineKeyboardButton("🌐 Subnet Grouping", callback_data=CallbackData.SUBNET_IP_GROUPING_TOGGLE),
+        ],
+        [
+            InlineKeyboardButton("⭐ High Trust Mode", callback_data=CallbackData.HIGH_TRUST_IP_GROUPING_TOGGLE),
+            InlineKeyboardButton("🗑️ Reset Trust", callback_data=CallbackData.TRUST_RESET_MENU),
         ],
         [
             InlineKeyboardButton("📌 Topics", callback_data=CallbackData.TOPICS_MENU),

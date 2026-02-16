@@ -190,6 +190,17 @@ class CallbackData:
     CDN_PROVIDER_CLOUDFLARE = "cdn_provider_cloudflare"
     CDN_USE_XFF_TOGGLE = "cdn_use_xff_toggle"
     
+    # Subnet IP Grouping (relaxed mode)
+    SUBNET_IP_GROUPING_TOGGLE = "subnet_ip_grouping_toggle"
+    
+    # High Trust IP Grouping (for trusted users, same node+inbound = 1 device)
+    HIGH_TRUST_IP_GROUPING_TOGGLE = "high_trust_ip_grouping_toggle"
+    
+    # Trust data reset
+    TRUST_RESET_MENU = "trust_reset_menu"
+    TRUST_RESET_ALL = "trust_reset_all"
+    TRUST_RESET_USER = "trust_reset_user"
+    
     # Node settings
     NODE_SETTINGS_MENU = "node_settings_menu"
     NODE_SETTINGS_REFRESH = "node_settings_refresh"

@@ -1147,6 +1147,167 @@ async def handle_force_delete_callback(query, context: ContextTypes.DEFAULT_TYPE
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
+# SUBNET IP GROUPING (RELAXED MODE)
+# ═══════════════════════════════════════════════════════════════════════════════
+
+
+async def subnet_ip_grouping_toggle_callback(query, context: ContextTypes.DEFAULT_TYPE):
+    """Handle subnet IP grouping toggle callback."""
+    config_data = await read_config()
+    current_status = config_data.get("subnet_ip_grouping", False)
+    
+    # Toggle the status
+    new_status = not current_status
+    await save_config_value("subnet_ip_grouping", str(new_status).lower())
+    
+    status_emoji = "✅" if new_status else "❌"
+    status_text = "enabled" if new_status else "disabled"
+    
+    await query.answer(f"Subnet IP Grouping {status_text}")
+    
+    await query.edit_message_text(
+        text=(
+            f"🌐 <b>Subnet IP Grouping</b>\n\n"
+            f"<b>Status:</b> {status_emoji} {status_text.title()}\n\n"
+            "<b>What it does:</b>\n"
+            "When enabled, IPs in the same <b>/24 subnet</b> that use the <b>same node</b> "
+            "AND <b>same inbound protocol</b> are counted as <b>one device</b>.\n\n"
+            "<b>Example:</b>\n"
+            "If user connects with these IPs:\n"
+            "• <code>192.168.1.5</code> → Node1 | VLESS\n"
+            "• <code>192.168.1.15</code> → Node1 | VLESS\n"
+            "• <code>192.168.1.100</code> → Node1 | VLESS\n\n"
+            "With grouping <b>enabled</b>: counts as <b>1 device</b>\n"
+            "With grouping <b>disabled</b>: counts as <b>3 devices</b>\n\n"
+            "<i>💡 Use this for ISPs that frequently change user IPs within the same subnet.</i>"
+        ),
+        reply_markup=InlineKeyboardMarkup([
+            [InlineKeyboardButton(
+                f"{'❌ Disable' if new_status else '✅ Enable'} Subnet Grouping",
+                callback_data=CallbackData.SUBNET_IP_GROUPING_TOGGLE
+            )],
+            [InlineKeyboardButton("« Back to Settings", callback_data=CallbackData.SETTINGS_MENU)]
+        ]),
+        parse_mode="HTML"
+    )
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# HIGH TRUST IP GROUPING
+# ═══════════════════════════════════════════════════════════════════════════════
+
+
+async def high_trust_ip_grouping_toggle_callback(query, context: ContextTypes.DEFAULT_TYPE):
+    """Handle high trust IP grouping toggle callback."""
+    config_data = await read_config()
+    current_status = config_data.get("high_trust_ip_grouping", False)
+    threshold = config_data.get("high_trust_threshold", 20)
+    
+    # Toggle the status
+    new_status = not current_status
+    await save_config_value("high_trust_ip_grouping", str(new_status).lower())
+    
+    status_emoji = "✅" if new_status else "❌"
+    status_text = "enabled" if new_status else "disabled"
+    
+    await query.answer(f"High Trust IP Grouping {status_text}")
+    
+    await query.edit_message_text(
+        text=(
+            f"⭐ <b>High Trust IP Grouping</b>\n\n"
+            f"<b>Status:</b> {status_emoji} {status_text.title()}\n"
+            f"<b>Trust Threshold:</b> ≥{threshold}\n\n"
+            "<b>What it does:</b>\n"
+            "For users with <b>high trust score</b>, if multiple IPs use <b>exactly</b> "
+            "the <b>same node</b> AND <b>same inbound protocol</b>, they are counted as "
+            "<b>one device</b>.\n\n"
+            "<b>Use case:</b>\n"
+            "When a user switches between WiFi and Mobile data on the <b>same phone</b>, "
+            "they get different IPs but connect through the same node and inbound. "
+            "This mode detects such patterns for trusted users and doesn't penalize them.\n\n"
+            "<b>Example:</b>\n"
+            "• <code>192.168.1.5</code> → Node1 | VLESS (WiFi)\n"
+            "• <code>85.12.45.120</code> → Node1 | VLESS (Mobile)\n\n"
+            f"With this mode <b>enabled</b> + trust ≥{threshold}: <b>1 device</b>\n"
+            "With this mode <b>disabled</b>: <b>2 devices</b>\n\n"
+            "<i>💡 This only applies to users who have built up trust through consistent behavior.</i>"
+        ),
+        reply_markup=InlineKeyboardMarkup([
+            [InlineKeyboardButton(
+                f"{'❌ Disable' if new_status else '✅ Enable'} High Trust Mode",
+                callback_data=CallbackData.HIGH_TRUST_IP_GROUPING_TOGGLE
+            )],
+            [InlineKeyboardButton("« Back to Settings", callback_data=CallbackData.SETTINGS_MENU)]
+        ]),
+        parse_mode="HTML"
+    )
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# TRUST DATA RESET
+# ═══════════════════════════════════════════════════════════════════════════════
+
+
+async def trust_reset_menu_callback(query, context: ContextTypes.DEFAULT_TYPE):
+    """Handle trust reset menu callback."""
+    from utils.warning_system import warning_system
+    
+    warnings_count = len(warning_system.warnings)
+    history_count = len(warning_system.warning_history)
+    
+    await query.edit_message_text(
+        text=(
+            "🗑️ <b>Reset Trust Data</b>\n\n"
+            f"<b>Active Warnings:</b> {warnings_count} users\n"
+            f"<b>Warning History:</b> {history_count} users\n\n"
+            "<b>What this does:</b>\n"
+            "• Clears all active monitoring warnings\n"
+            "• Clears trust score history (12h/24h counters)\n"
+            "• Users will start fresh with default trust score\n\n"
+            "⚠️ <b>Warning:</b> This will reset ALL trust data for ALL users. "
+            "Users who were flagged as suspicious will get a clean slate."
+        ),
+        reply_markup=InlineKeyboardMarkup([
+            [InlineKeyboardButton("🗑️ Reset ALL Trust Data", callback_data=CallbackData.TRUST_RESET_ALL)],
+            [InlineKeyboardButton("« Back to Settings", callback_data=CallbackData.SETTINGS_MENU)]
+        ]),
+        parse_mode="HTML"
+    )
+
+
+async def trust_reset_all_callback(query, context: ContextTypes.DEFAULT_TYPE):
+    """Handle reset all trust data callback."""
+    from utils.warning_system import warning_system
+    
+    try:
+        warnings_cleared, history_cleared = await warning_system.clear_all_trust_data()
+        
+        await query.answer("✅ All trust data cleared")
+        
+        await query.edit_message_text(
+            text=(
+                "✅ <b>Trust Data Cleared</b>\n\n"
+                f"<b>Warnings cleared:</b> {warnings_cleared}\n"
+                f"<b>History entries cleared:</b> {history_cleared}\n\n"
+                "All users now start with a fresh trust score."
+            ),
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton("« Back to Settings", callback_data=CallbackData.SETTINGS_MENU)]
+            ]),
+            parse_mode="HTML"
+        )
+    except Exception as e:
+        await query.answer("❌ Error clearing trust data")
+        await query.edit_message_text(
+            text=f"❌ Error: {str(e)}",
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton("« Back", callback_data=CallbackData.TRUST_RESET_MENU)]
+            ]),
+            parse_mode="HTML"
+        )
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
 # CDN MODE SETTINGS
 # ═══════════════════════════════════════════════════════════════════════════════
 

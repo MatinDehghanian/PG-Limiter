@@ -97,6 +97,55 @@ class EnhancedWarningSystem:
         self.warning_history[username].append(current_time)
         await self.save_warning_history()
     
+    async def clear_all_trust_data(self) -> tuple[int, int]:
+        """
+        Clear all trust-related data for all users.
+        This resets warning history and current warnings.
+        
+        Returns:
+            tuple[int, int]: (warnings_cleared, history_entries_cleared)
+        """
+        warnings_count = len(self.warnings)
+        history_count = len(self.warning_history)
+        
+        # Clear active warnings
+        self.warnings.clear()
+        await self.save_warnings()
+        
+        # Clear warning history
+        self.warning_history.clear()
+        await self.save_warning_history()
+        
+        warning_logger.info(f"🗑️ Cleared all trust data: {warnings_count} warnings, {history_count} history entries")
+        return warnings_count, history_count
+    
+    async def clear_user_trust_data(self, username: str) -> bool:
+        """
+        Clear trust data for a specific user.
+        
+        Args:
+            username: The username to clear data for
+            
+        Returns:
+            bool: True if user had data to clear
+        """
+        had_data = False
+        
+        if username in self.warnings:
+            del self.warnings[username]
+            await self.save_warnings()
+            had_data = True
+        
+        if username in self.warning_history:
+            del self.warning_history[username]
+            await self.save_warning_history()
+            had_data = True
+        
+        if had_data:
+            warning_logger.info(f"🗑️ Cleared trust data for user: {username}")
+        
+        return had_data
+    
     def load_warnings(self):
         """Load warnings from file"""
         try:
