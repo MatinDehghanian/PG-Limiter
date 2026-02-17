@@ -172,7 +172,7 @@ def group_ips_by_subnet(ip_list: list[str]) -> tuple[list[str], dict[str, list[s
     return formatted_results, ip_mapping
 
 
-def _build_ip_details(user_info: EnhancedUserInfo, original_user: UserType, show_enhanced_details: bool, cdn_inbounds: list[str] = None, cdn_nodes: list[int] = None, disabled_nodes: list[int] = None, subnet_ip_grouping: bool = False, high_trust_ip_grouping: bool = False, user_trust_score: float = 0.0, high_trust_threshold: int = 20) -> tuple[list[str], int]:
+def _build_ip_details(user_info: EnhancedUserInfo, original_user: UserType, show_enhanced_details: bool, cdn_inbounds: list[str] = None, cdn_nodes: list[int] = None, disabled_nodes: list[int] = None, subnet_ip_grouping: bool = False, high_trust_ip_grouping: bool = False, user_trust_score: float = 0.0, high_trust_threshold: int = 20, isp_info: dict = None) -> tuple[list[str], int]:
     """
     Build IP details with connection info for a user.
     
@@ -186,13 +186,15 @@ def _build_ip_details(user_info: EnhancedUserInfo, original_user: UserType, show
                    All IPs from CDN nodes count as 1 device per node.
         disabled_nodes: List of node IDs to exclude from monitoring.
                        Connections from these nodes are completely ignored.
-        subnet_ip_grouping: When True, IPs in same /24 subnet with same node AND
-                           inbound protocol are counted as a single device (relaxed mode).
+        subnet_ip_grouping: When True, IPs in same subnet with same node AND
+                           inbound protocol are counted as a single device.
+                           Uses /24 for same ISP, /16 when ISPs match.
         high_trust_ip_grouping: When True and user has high trust score, IPs using
                                same node AND inbound are counted as one device
                                (for detecting WiFi/Mobile switching on same phone).
         user_trust_score: The user's current trust score (from warning system).
         high_trust_threshold: Minimum trust score required for high_trust_ip_grouping.
+        isp_info: Dict mapping IP addresses to their ISP info (for subnet grouping).
         
     Returns:
         Tuple of (list of formatted IP detail strings, device count)
@@ -204,6 +206,8 @@ def _build_ip_details(user_info: EnhancedUserInfo, original_user: UserType, show
         cdn_nodes = []
     if disabled_nodes is None:
         disabled_nodes = []
+    if isp_info is None:
+        isp_info = {}
     
     # Check if high trust mode should be applied for this user
     apply_high_trust_grouping = (
@@ -233,6 +237,27 @@ def _build_ip_details(user_info: EnhancedUserInfo, original_user: UserType, show
         except ValueError:
             return ip
     
+    # Helper function to get /16 subnet key for an IP
+    def get_wide_subnet_key(ip: str) -> str:
+        """Get /16 subnet key for an IP address (first two octets)."""
+        try:
+            ip_obj = ipaddress.ip_address(ip)
+            if ip_obj.version == 4:
+                network = ipaddress.ip_network(f"{ip}/16", strict=False)
+                # Get first two octets (e.g., "192.146" from "192.146.2.57")
+                parts = network.network_address.exploded.split('.')
+                return f"{parts[0]}.{parts[1]}"
+            else:
+                return ip  # IPv6: use full IP
+        except ValueError:
+            return ip
+    
+    # Helper function to get ISP name for an IP
+    def get_isp_name(ip: str) -> str:
+        """Get ISP name for an IP, or empty string if not available."""
+        info = isp_info.get(ip, {})
+        return info.get('isp', '') or info.get('org', '') or ''
+    
     # Count unique devices (IP + inbound combinations)
     # For CDN inbounds/nodes, all IPs count as 1 device per inbound/node
     for conn in original_user.device_info.connections:
@@ -256,10 +281,18 @@ def _build_ip_details(user_info: EnhancedUserInfo, original_user: UserType, show
             # (for users who have built trust - detecting WiFi/Mobile switching)
             unique_devices.add(("HIGH_TRUST", conn.node_id, conn.inbound_protocol))
         elif subnet_ip_grouping:
-            # Subnet IP Grouping mode: IPs in same /24 subnet with same node AND inbound
-            # are counted as a single device
-            subnet_key = get_subnet_key(conn.ip)
-            unique_devices.add(("SUBNET_GROUP", subnet_key, conn.node_id, conn.inbound_protocol))
+            # Subnet IP Grouping mode:
+            # - If ISP info available: use /16 subnet + ISP + node + inbound
+            # - Otherwise: use /24 subnet + node + inbound
+            ip_isp = get_isp_name(conn.ip)
+            if ip_isp:
+                # Wide subnet grouping (/16) with ISP matching
+                wide_subnet_key = get_wide_subnet_key(conn.ip)
+                unique_devices.add(("SUBNET_ISP_GROUP", wide_subnet_key, ip_isp, conn.node_id, conn.inbound_protocol))
+            else:
+                # Narrow subnet grouping (/24) without ISP info
+                subnet_key = get_subnet_key(conn.ip)
+                unique_devices.add(("SUBNET_GROUP", subnet_key, conn.node_id, conn.inbound_protocol))
         else:
             # Normal mode: each unique (IP, inbound) is a device
             unique_devices.add((conn.ip, conn.inbound_protocol))
@@ -480,10 +513,13 @@ async def check_ip_used() -> dict:
         if email in warning_system.warnings:
             user_trust_score = warning_system.warnings[email].trust_score
         
+        # Get ISP info for this user's IPs
+        user_isp_info = {ip: isp_info_batch.get(ip, {}) for ip in user_info.user.ip if ip in isp_info_batch}
+        
         _, device_count = _build_ip_details(
             user_info, original_user, show_enhanced_details, 
             cdn_inbounds, cdn_nodes, disabled_nodes, subnet_ip_grouping,
-            high_trust_ip_grouping, user_trust_score, high_trust_threshold
+            high_trust_ip_grouping, user_trust_score, high_trust_threshold, user_isp_info
         )
         all_user_device_counts[email] = device_count
         total_devices += device_count
@@ -552,11 +588,14 @@ async def check_ip_used() -> dict:
         if email in warning_system.warnings:
             user_trust_score = warning_system.warnings[email].trust_score
         
+        # Get ISP info for this user's IPs
+        user_isp_info = {ip: isp_info_batch.get(ip, {}) for ip in user_info.user.ip if ip in isp_info_batch}
+        
         # Build IP details
         ip_details, _ = _build_ip_details(
             user_info, original_user, show_enhanced_details, 
             cdn_inbounds, cdn_nodes, disabled_nodes, subnet_ip_grouping,
-            high_trust_ip_grouping, user_trust_score, high_trust_threshold
+            high_trust_ip_grouping, user_trust_score, high_trust_threshold, user_isp_info
         )
         
         # Build status indicators
